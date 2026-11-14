@@ -133,6 +133,36 @@ class StatusWidget : PowerWidget()
 class NextWidget : PowerWidget()
 class ScheduleWidget : PowerWidget()
 
+private fun liveWidget(context: Context, today: List<Interval>, tomorrow: List<Interval>,
+                       now: ZonedDateTime, note: String, warning: Boolean): RemoteViews {
+    val minute = now.hour * 60 + now.minute
+    val current = today.firstOrNull { minute in it.start until it.end }
+    val upcomingToday = today.firstOrNull { it.start > minute }
+    val upcoming = upcomingToday ?: tomorrow.firstOrNull()
+    val colors = context.resources
+    return RemoteViews(context.packageName, R.layout.widget_live).apply {
+        setTextViewText(R.id.widget_note, note)
+        setViewVisibility(R.id.widget_warning, if (warning) android.view.View.VISIBLE else android.view.View.GONE)
+        fun bind(timeId: Int, stateId: Int, interval: Interval?, label: String, missing: String) {
+            setTextViewText(timeId, interval?.let { "${clock(it.start)}–${clock(it.end)}" } ?: "—")
+            val state = when (interval?.power) {
+                Power.ON -> "Світло є"
+                Power.OFF -> "Світла немає"
+                Power.UNKNOWN -> "Немає даних"
+                null -> missing
+            }
+            setTextViewText(stateId, "$label · $state")
+            setTextViewTextSize(timeId, android.util.TypedValue.COMPLEX_UNIT_SP, 21f)
+            setTextColor(timeId, colors.getColor(
+                if (interval?.power == Power.OFF) R.color.widget_off else R.color.widget_text, context.theme))
+        }
+        bind(R.id.live_current_time, R.id.live_current_state, current, "Зараз", "Немає графіка")
+        bind(R.id.live_next_time, R.id.live_next_state, upcoming,
+            if (upcomingToday == null && upcoming != null) "Завтра" else "Далі", "Немає графіка")
+        setOnClickPendingIntent(R.id.widget_root, openApp(context))
+    }
+}
+
 fun updateWidgets(context: Context, download: Download? = null) {
     if (!hasWidgets(context)) return
     val prefs = context.settings()
@@ -161,6 +191,21 @@ fun updateWidgets(context: Context, download: Download? = null) {
     }
     widgetTypes.forEachIndexed { index, type ->
         val ids = manager.getAppWidgetIds(ComponentName(context, type))
+        if (type == NextWidget::class.java && ids.isNotEmpty()) {
+            val stamp = schedule?.updated?.let { runCatching { Instant.parse(it) }.getOrNull() }
+            val age = stamp?.let { java.time.Duration.between(it, now.toInstant()).toMinutes() }
+            val updated = when {
+                stale -> "Збережений графік"
+                stamp == null || age == null || age < 0 -> null
+                age < 1 -> "Оновлено щойно"
+                age < 60 -> "Оновлено $age хв тому"
+                age < 1440 -> "Оновлено ${age / 60} год тому"
+                else -> "Оновлено ${stamp.atZone(kyiv).toLocalDate().format(notificationDate)}"
+            }
+            val note = listOfNotNull(group?.let { "Черга $it" }, updated).joinToString(" · ")
+            manager.updateAppWidget(ids, liveWidget(context, intervals, tomorrow, now, note, schedule?.notice != null))
+            return@forEachIndexed
+        }
         for (id in ids) {
             val options = manager.getAppWidgetOptions(id)
             val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
