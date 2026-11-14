@@ -20,7 +20,7 @@ private const val workName = "schedule_sync"
 
 fun syncBackground(context: Context, refresh: Boolean = false) {
     val manager = WorkManager.getInstance(context)
-    if (!context.settings().getBoolean(notificationSetting, false) && !hasWidgets(context)) {
+    if ((!context.settings().getBoolean(notificationSetting, false) || pushConfigured(context)) && !hasWidgets(context)) {
         manager.cancelUniqueWork(workName)
         manager.cancelUniqueWork("$workName-now")
         return
@@ -55,7 +55,7 @@ fun applyDownload(context: Context, region: String, download: Download) {
     prefs.edit().putString("widgetChecked:$region",
         if (!download.offline && !schedule.stale) Instant.now().toString() else null).apply()
     updateWidgets(context, download)
-    if (download.offline || !prefs.getBoolean(notificationSetting, false)) return
+    if (download.offline || pushConfigured(context) || !prefs.getBoolean(notificationSetting, false)) return
     if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
     val manager = context.getSystemService(NotificationManager::class.java)
     if (!manager.areNotificationsEnabled()) return

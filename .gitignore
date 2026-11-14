@@ -3,3 +3,5 @@
 **/build/
 local.properties
 *.jks
+google-services.json
+*service-account*.json

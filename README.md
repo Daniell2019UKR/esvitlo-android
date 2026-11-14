@@ -24,6 +24,8 @@
 
 ## Збірка
 
+Для збірки з push завантажте конфігурацію Firebase для `ua.pp.yesvitlo` у `app/google-services.json`. Збірка без конфігурації використовує локальні сповіщення. Файл ключа серверного облікового запису в Android-проєкті не потрібен.
+
 Відкрийте каталог `android` в Android Studio з JDK 17 та Android SDK 36 або виконайте `./gradlew :app:assembleDebug` (`gradlew.bat :app:assembleDebug` у Windows). APK для локального встановлення з’явиться в `app/build/outputs/apk/debug/app-debug.apk`.
 
 На Windows використовуйте шлях до проєкту без кирилиці. Під час першої збірки Gradle завантажить залежності з Google Maven і Maven Central.

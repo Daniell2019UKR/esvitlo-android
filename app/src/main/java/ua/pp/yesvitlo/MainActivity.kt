@@ -121,7 +121,10 @@ private fun ScheduleScreen(
     fun setNotifications(enabled: Boolean) {
         notifications = enabled
         prefs.edit().putBoolean(notificationSetting, enabled).apply()
-        if (!onboarding) syncBackground(context, refresh = enabled)
+        if (!onboarding) {
+            syncPush(context)
+            syncBackground(context, refresh = enabled)
+        }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         notificationHint = !it
@@ -142,6 +145,10 @@ private fun ScheduleScreen(
             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
     }
     LaunchedEffect(Unit) {
+        if (!onboarding) {
+            syncPush(context)
+            syncBackground(context)
+        }
         while (true) {
             now = ZonedDateTime.now(kyiv)
             delay(15000)
@@ -232,6 +239,7 @@ private fun ScheduleScreen(
                             group?.let { saveQueue(region, it) }
                             prefs.edit().putBoolean("setupComplete", true).apply()
                             onboarding = false
+                            syncPush(context)
                             syncBackground(context, refresh = notifications)
                         }, modifier = Modifier.fillMaxWidth(),
                             enabled = regionChosen && (group != null || !loading && groups.isEmpty())) {
@@ -340,10 +348,10 @@ private fun ScheduleScreen(
                                 regionChosen = true
                                 region = code
                                 group = savedQueue(code)
-                                if (!onboarding) saveRegion(code)
+                                if (!onboarding) { saveRegion(code); syncPush(context) }
                             } else {
                                 group = code
-                                if (!onboarding) saveQueue(region, code)
+                                if (!onboarding) { saveQueue(region, code); syncPush(context) }
                             }
                             picker = null
                         }, modifier = Modifier.fillMaxWidth()) {
