@@ -392,8 +392,23 @@ private fun ScheduleScreen(
                         Button(onClick = { refresh++ }, enabled = !loading) { Text("↻  Оновити") }
                     }
                     Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    if (places.size > 1) FilledTonalButton(onClick = { picker = "places" }) {
-                        Text(places.find { it.id == activePlace }?.name ?: "Мої локації")
+                    if (places.size > 1) {
+                        val pinned = places.take(3)
+                        val selectedPlace = places.find { it.id == activePlace }
+                        val visiblePlaces = if (selectedPlace != null && selectedPlace !in pinned)
+                            pinned.take(2) + selectedPlace else pinned
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            visiblePlaces.forEach { place ->
+                                FilterChip(selected = place.id == activePlace, onClick = { selectPlace(place) },
+                                    modifier = Modifier.weight(1f), label = {
+                                        Text(place.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    })
+                            }
+                            if (places.size > 3) IconButton(onClick = { picker = "places" }) {
+                                Icon(painterResource(R.drawable.ic_more_locations), contentDescription = "Усі локації")
+                            }
+                        }
                     }
                     Text(selected?.let { "Черга $it" } ?: "Чергу не вибрано", color = colors.onSurfaceVariant)
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())

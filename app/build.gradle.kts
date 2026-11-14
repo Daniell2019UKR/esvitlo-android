@@ -13,8 +13,8 @@ android {
         applicationId = "ua.pp.yesvitlo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.6.2"
+        versionCode = 11
+        versionName = "1.6.3"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
