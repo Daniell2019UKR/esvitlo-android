@@ -130,12 +130,6 @@ private fun ScheduleScreen(
     var updateStatus by remember { mutableStateOf("") }
     var updateBusy by remember { mutableStateOf(false) }
     var updatePrompt by remember { mutableStateOf(false) }
-    val installerPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        val file = java.io.File(context.cacheDir, "updates/esvitlo.apk")
-        if (context.packageManager.canRequestPackageInstalls() && file.isFile) {
-            runCatching { installUpdate(context, file) }.onFailure { updateStatus = "Не вдалося відкрити інсталятор." }
-        } else updateStatus = "Дозвольте встановлення з цього джерела й повторіть спробу."
-    }
     fun checkUpdate(manual: Boolean) {
         if (updateBusy) return
         updateBusy = true
@@ -159,26 +153,13 @@ private fun ScheduleScreen(
     }
     if (updatePrompt) update?.let { available ->
         AlertDialog(onDismissRequest = { updatePrompt = false }, title = { Text("Доступна версія ${available.version}") },
-            text = { Text("Завантажити APK з GitHub і відкрити інсталятор Android?") },
+            text = { Text("Відкрийте сторінку релізу на GitHub, щоб завантажити APK.") },
             dismissButton = { TextButton(onClick = { updatePrompt = false }) { Text("Пізніше") } },
             confirmButton = { TextButton(onClick = {
-                updatePrompt = false
-                updateBusy = true
-                updateStatus = "Завантажуємо оновлення…"
-                updateScope.launch {
-                    try {
-                        val file = withContext(Dispatchers.IO) { downloadUpdate(context, available) }
-                        updateStatus = "Оновлення готове до встановлення."
-                        if (context.packageManager.canRequestPackageInstalls()) installUpdate(context, file)
-                        else installerPermission.launch(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                            Uri.parse("package:${context.packageName}")))
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        updateStatus = "Не вдалося завантажити або перевірити APK."
-                    } finally { updateBusy = false }
-                }
-            }) { Text("Оновити") } })
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(available.url))) }
+                    .onSuccess { updatePrompt = false }
+                    .onFailure { updateStatus = "Не вдалося відкрити GitHub."; updatePrompt = false }
+            }) { Text("Відкрити на GitHub") } })
     }
     var onboarding by rememberSaveable { mutableStateOf(!prefs.getBoolean("setupComplete", prefs.contains("queue:$initialRegion"))) }
     var places by remember { mutableStateOf(prefs.places()) }
