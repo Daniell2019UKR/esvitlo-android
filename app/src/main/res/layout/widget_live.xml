@@ -16,18 +16,20 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:orientation="vertical" android:gravity="center_vertical">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" android:layout_marginTop="4dp">
+            android:orientation="vertical" android:layout_marginTop="4dp"
+            android:gravity="center_horizontal" android:background="@drawable/widget_interval_surface">
             <TextView android:id="@+id/live_current_time" style="@style/WidgetIntervals"
-                android:textStyle="bold" android:maxLines="1" />
+                android:gravity="center" android:textStyle="bold" android:maxLines="2" />
             <TextView android:id="@+id/live_current_state" style="@style/WidgetDayLabel"
-                android:textStyle="normal" android:textColor="@color/widget_muted" />
+                android:gravity="center" android:textStyle="normal" android:textColor="@color/widget_muted" />
         </LinearLayout>
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" android:layout_marginTop="4dp">
+            android:orientation="vertical" android:layout_marginTop="4dp"
+            android:gravity="center_horizontal" android:background="@drawable/widget_interval_next">
             <TextView android:id="@+id/live_next_time" style="@style/WidgetIntervals"
-                android:textStyle="bold" android:maxLines="1" />
+                android:gravity="center" android:textStyle="bold" android:maxLines="2" />
             <TextView android:id="@+id/live_next_state" style="@style/WidgetDayLabel"
-                android:textStyle="normal" android:textColor="@color/widget_muted" />
+                android:gravity="center" android:textStyle="normal" android:textColor="@color/widget_muted" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

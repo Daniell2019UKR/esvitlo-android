@@ -1,0 +1,37 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_background" android:orientation="vertical" android:padding="8dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_svitlo_mark" android:tint="@color/widget_text" android:contentDescription="єСвітло" />
+        <TextView android:id="@+id/widget_note" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:layout_marginStart="5dp" android:textColor="@color/widget_text"
+            android:textSize="11sp" android:maxLines="2" android:ellipsize="end" />
+        <ImageView android:id="@+id/widget_warning" android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_widget_warning" android:tint="@color/widget_text"
+            android:contentDescription="Є попередження оператора" android:visibility="gone" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="4dp" android:background="@drawable/widget_interval_surface"
+        android:gravity="center_vertical" android:orientation="horizontal" android:paddingHorizontal="6dp">
+        <ImageView android:id="@+id/live_current_icon" android:layout_width="13dp" android:layout_height="13dp"
+            android:tint="@color/widget_text" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/live_current_state" android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="wrap_content" android:layout_marginStart="4dp" android:layout_marginEnd="3dp"
+            android:textColor="@color/widget_text" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/live_current_time" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="@color/widget_text" android:textStyle="bold" android:textSize="13sp" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="4dp" android:background="@drawable/widget_interval_next"
+        android:gravity="center_vertical" android:orientation="horizontal" android:paddingHorizontal="6dp">
+        <ImageView android:id="@+id/live_next_icon" android:layout_width="13dp" android:layout_height="13dp"
+            android:tint="@color/widget_text" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/live_next_state" android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="wrap_content" android:layout_marginStart="4dp" android:layout_marginEnd="3dp"
+            android:textColor="@color/widget_text" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/live_next_time" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="@color/widget_text" android:textStyle="bold" android:textSize="13sp" android:maxLines="1" />
+    </LinearLayout>
+</LinearLayout>

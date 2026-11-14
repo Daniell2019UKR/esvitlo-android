@@ -143,14 +143,14 @@ private fun liveWidget(context: Context, today: List<Interval>, tomorrow: List<I
     val upcomingToday = today.firstOrNull { it.start > minute }
     val upcoming = upcomingToday ?: tomorrow.firstOrNull()
     val colors = context.resources
-    return RemoteViews(context.packageName, R.layout.widget_live).apply {
+    return RemoteViews(context.packageName, if (narrow) R.layout.widget_live else R.layout.widget_live_rows).apply {
         if (narrow) {
             val inset = (5 * colors.displayMetrics.density).toInt()
             setViewPadding(android.R.id.background, inset, inset, inset, inset)
         }
         setTextViewText(R.id.widget_note, note)
         setViewVisibility(R.id.widget_warning, if (warning) android.view.View.VISIBLE else android.view.View.GONE)
-        fun bind(timeId: Int, stateId: Int, interval: Interval?, label: String, missing: String) {
+        fun bind(timeId: Int, stateId: Int, iconId: Int, interval: Interval?, nextDay: Boolean = false) {
             setTextViewText(timeId, interval?.let {
                 "${clock(it.start)}–${if (narrow) "\n" else ""}${clock(it.end)}"
             } ?: "—")
@@ -158,21 +158,29 @@ private fun liveWidget(context: Context, today: List<Interval>, tomorrow: List<I
                 Power.ON -> "Світло є"
                 Power.OFF -> "Світла немає"
                 Power.UNKNOWN -> "Немає даних"
-                null -> missing
+                null -> "Немає графіка"
             }
             setTextViewText(stateId, if (narrow) when (interval?.power) {
                 Power.ON -> "Є світло"
                 Power.OFF -> "Вимкн."
                 else -> "Н/д"
-            } else "$label · $state")
-            if (narrow) setInt(timeId, "setMaxLines", 2)
-            setTextViewTextSize(timeId, android.util.TypedValue.COMPLEX_UNIT_SP, if (narrow) 12f else 19f)
+            } else if (nextDay) "Завтра · $state" else state)
+            if (narrow) {
+                setInt(timeId, "setMaxLines", 2)
+                setTextViewTextSize(timeId, android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+            } else {
+                setImageViewResource(iconId, when (interval?.power) {
+                    Power.ON -> R.drawable.ic_widget_power
+                    Power.OFF -> R.drawable.ic_widget_power_off
+                    else -> R.drawable.ic_widget_warning
+                })
+            }
             setTextColor(timeId, colors.getColor(
                 if (interval?.power == Power.OFF) R.color.widget_off else R.color.widget_text, context.theme))
         }
-        bind(R.id.live_current_time, R.id.live_current_state, current, "Зараз", "Немає графіка")
-        bind(R.id.live_next_time, R.id.live_next_state, upcoming,
-            if (upcomingToday == null && upcoming != null) "Завтра" else "Далі", "Немає графіка")
+        bind(R.id.live_current_time, R.id.live_current_state, R.id.live_current_icon, current)
+        bind(R.id.live_next_time, R.id.live_next_state, R.id.live_next_icon, upcoming,
+            nextDay = upcomingToday == null && upcoming != null)
         setOnClickPendingIntent(android.R.id.background, openApp(context))
     }
 }
@@ -234,7 +242,7 @@ fun updateWidgets(context: Context, download: Download? = null) {
             val reserved = if (roomy) 77 else 47
             val textSize = (maxSize downTo 10).firstOrNull { size ->
                 paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, size.toFloat(), metrics)
-                paint.measureText("00:00–24:00…") <= (width - 28) * metrics.density / 2 &&
+                paint.measureText("00:00–24:00…") <= (width - 40) * metrics.density / 2 &&
                     (height <= 0 || paint.fontSpacing <= (height - reserved) * metrics.density)
             } ?: 10
             paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat(), metrics)
