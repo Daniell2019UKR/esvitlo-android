@@ -283,7 +283,7 @@ private fun ScheduleScreen(
                             Text("Тема · ${theme.label}  ›")
                         }
                         OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy,
-                            modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення") }
+                            modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення застосунку") }
                         if (updateStatus.isNotEmpty()) Text(updateStatus)
                         OutlinedButton(onClick = { picker = "sync" }, modifier = Modifier.fillMaxWidth()) {
                             Text("Частота синхронізації · ${syncLabel(syncSeconds)}  ›")
