@@ -12,13 +12,14 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 val kyiv: ZoneId = runCatching { ZoneId.of("Europe/Kyiv") }.getOrElse { ZoneId.of("Europe/Kiev") }
-data class Region(val code: String, val name: String)
+data class Region(val code: String, val name: String, val source: String?)
 enum class Power { ON, OFF, UNKNOWN }
 data class Interval(val start: Int, val end: Int, val power: Power)
 data class Day(val date: LocalDate, val groups: Map<String, List<Interval>>)
 data class Schedule(
     val days: List<Day>, val updated: String?, val stale: Boolean,
-    val retained: Set<String>, val notice: String?, val noticeStale: Boolean
+    val retained: Set<String>, val notice: String?, val noticeStale: Boolean,
+    val noticeKnown: Boolean = false
 ) {
     val groups: List<String> get() = days.flatMap { it.groups.keys }.distinct().sortedWith(
         compareBy({ it.substringBefore('.').toIntOrNull() ?: Int.MAX_VALUE },
@@ -52,10 +53,15 @@ class ScheduleRepository(private val prefs: SharedPreferences) {
         runCatching { parseRegions(JSONObject(prefs.getString("catalog", null) ?: "{}")) }.getOrDefault(emptyList())
     }
 
+    fun cachedSchedule(region: String): Schedule? = prefs.getString("schedule:$region", null)?.let {
+        runCatching { parseSchedule(JSONObject(it)) }.getOrNull()
+    }
+
+    fun cachedRegions() = runCatching { parseRegions(JSONObject(prefs.getString("catalog", null) ?: "{}")) }.getOrDefault(emptyList())
+
     fun schedule(region: String): Download {
         require(region.matches(Regex("[a-z][a-z0-9-]{0,47}")))
         val key = "schedule:$region"
-        fun cached() = prefs.getString(key, null)?.let { runCatching { parseSchedule(JSONObject(it)) }.getOrNull() }
         return try {
             val (status, json) = request("schedules?region=$region")
             require(json.getString("region") == region)
@@ -64,11 +70,11 @@ class ScheduleRepository(private val prefs: SharedPreferences) {
                 prefs.edit().putString(key, json.toString()).apply()
                 Download(schedule, false)
             } else {
-                val saved = cached()
+                val saved = cachedSchedule(region)
                 Download(schedule.copy(days = saved?.days.orEmpty(), updated = saved?.updated, stale = true), false)
             }
         } catch (_: Exception) {
-            Download(cached() ?: Schedule(emptyList(), null, true, emptySet(), null, true), true)
+            Download(cachedSchedule(region) ?: Schedule(emptyList(), null, true, emptySet(), null, true), true)
         }
     }
 }
@@ -77,7 +83,7 @@ private fun JSONArray.items() = (0 until length()).map { get(it) }
 private fun JSONObject.string(key: String) = if (isNull(key)) null else getString(key)
 private fun parseRegions(json: JSONObject) = json.getJSONArray("regions").items().map {
     it as JSONObject
-    Region(it.getString("code"), it.getString("name"))
+    Region(it.getString("code"), it.getString("name"), it.string("source"))
 }.filter { it.code.matches(Regex("[a-z][a-z0-9-]{0,47}")) }
 
 fun parseSchedule(json: JSONObject): Schedule {
@@ -117,7 +123,7 @@ fun parseSchedule(json: JSONObject): Schedule {
         json.optJSONArray("retainedDates")?.items().orEmpty().map { it.toString() }.toSet(),
         alert?.takeIf { it.optBoolean("active") }?.let {
             it.string("message") ?: "Оператор повідомив про відключення."
-        }, alert?.optBoolean("stale") == true)
+        }, alert?.optBoolean("stale") == true, alert?.opt("active") is Boolean)
 }
 
 private fun minutes(value: String): Int {

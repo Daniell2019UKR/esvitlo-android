@@ -2,6 +2,11 @@ package ua.pp.yesvitlo
 
 import android.os.Bundle
 import android.os.Build
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.SystemBarStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -60,8 +65,8 @@ class MainActivity : ComponentActivity() {
                     repository = remember { ScheduleRepository(prefs) },
                     initialRegion = prefs.getString("region", "o") ?: "o",
                     savedQueue = { prefs.getString("queue:$it", null) },
-                    saveRegion = { prefs.edit().putString("region", it).apply() },
-                    saveQueue = { region, group -> prefs.edit().putString("queue:$region", group).apply() },
+                    saveRegion = { prefs.edit().putString("region", it).apply(); updateWidgets(this) },
+                    saveQueue = { region, group -> prefs.edit().putString("queue:$region", group).apply(); updateWidgets(this) },
                     theme = theme,
                     selectTheme = { theme = it; prefs.edit().putString("theme", it.name).apply() }
                 )
@@ -102,6 +107,24 @@ private fun ScheduleScreen(
     var loading by remember { mutableStateOf(true) }
     var now by remember { mutableStateOf(ZonedDateTime.now(kyiv)) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("esvitlo", android.content.Context.MODE_PRIVATE) }
+    var notifications by remember { mutableStateOf(prefs.getBoolean(notificationSetting, false)) }
+    var notificationHint by remember { mutableStateOf(false) }
+    fun setNotifications(enabled: Boolean) {
+        notifications = enabled
+        prefs.edit().putBoolean(notificationSetting, enabled).apply()
+        syncBackground(context, refresh = enabled)
+    }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationHint = !it
+        setNotifications(it)
+    }
+    fun openLink(url: String) {
+        val uri = Uri.parse(url)
+        if (uri.scheme == "https" && !uri.host.isNullOrEmpty())
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+    }
     LaunchedEffect(Unit) {
         while (true) {
             now = ZonedDateTime.now(kyiv)
@@ -115,6 +138,7 @@ private fun ScheduleScreen(
             while (true) {
                 val startedAt = android.os.SystemClock.elapsedRealtime()
                 download = withContext(Dispatchers.IO) { repository.schedule(region) }
+                download?.let { applyDownload(context, region, it) }
                 loading = false
                 delay((refreshIntervalMillis - (android.os.SystemClock.elapsedRealtime() - startedAt)).coerceAtLeast(1_000L))
             }
@@ -144,7 +168,7 @@ private fun ScheduleScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("єСвітло", style = MaterialTheme.typography.titleLarge, color = colors.primary,
                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { refresh++ }, enabled = !loading) { Text("Оновити") }
+                    Button(onClick = { refresh++ }, enabled = !loading) { Text("↻  Оновити") }
                 }
                 Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -196,7 +220,28 @@ private fun ScheduleScreen(
                 }
                 Text("Час київський. Фактичні відключення можуть відрізнятися від графіка.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { picker = "theme" }) { Text("Тема · ${theme.label}") }
+                OutlinedButton(onClick = { picker = "theme" }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Тема · ${theme.label}  ›")
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Сповіщення про зміни графіка та попередження", Modifier.weight(1f).padding(end = 12.dp))
+                    Switch(checked = notifications, onCheckedChange = { enabled ->
+                        if (enabled && Build.VERSION.SDK_INT >= 33 &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        else setNotifications(enabled)
+                    })
+                }
+                if (notificationHint) TextButton(onClick = {
+                    context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+                }) { Text("Дозволити сповіщення в налаштуваннях Android") }
+                HorizontalDivider()
+                regions.find { it.code == region }?.source?.let { source ->
+                    TextButton(onClick = { openLink(source) }) { Text("Сайт оператора ↗") }
+                }
+                TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
+                TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
             }
         }
     }
@@ -271,4 +316,4 @@ private fun IntervalRow(interval: Interval, current: Boolean) {
     }
 }
 
-private fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
+fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
