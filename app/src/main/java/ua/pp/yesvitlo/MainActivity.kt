@@ -29,6 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.activity.compose.BackHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -44,9 +46,9 @@ private enum class ThemeMode(val label: String) {
     SYSTEM("Як у системі"), LIGHT("Світла"), DARK("Темна")
 }
 private val locale = Locale.forLanguageTag("uk-UA")
-private val calendarLabel = DateTimeFormatter.ofPattern("EEEE, d MMMM", locale)
+private val calendarLabel = DateTimeFormatter.ofPattern("dd-MM-yyyy", locale)
 private val updatedLabel = DateTimeFormatter.ofPattern("dd-MM-yyyy · HH:mm", locale)
-private const val refreshIntervalMillis = 30_000L
+private val syncOptions = listOf(15, 30, 60, 120)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,16 +111,30 @@ private fun ScheduleScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("esvitlo", android.content.Context.MODE_PRIVATE) }
+    var onboarding by rememberSaveable { mutableStateOf(!prefs.getBoolean("setupComplete", prefs.contains("queue:$initialRegion"))) }
+    var regionChosen by rememberSaveable { mutableStateOf(false) }
+    var settings by rememberSaveable { mutableStateOf(false) }
+    var syncSeconds by remember { mutableIntStateOf(prefs.getInt("syncSeconds", 30)) }
+    BackHandler(settings && !onboarding) { settings = false }
     var notifications by remember { mutableStateOf(prefs.getBoolean(notificationSetting, false)) }
     var notificationHint by remember { mutableStateOf(false) }
     fun setNotifications(enabled: Boolean) {
         notifications = enabled
         prefs.edit().putBoolean(notificationSetting, enabled).apply()
-        syncBackground(context, refresh = enabled)
+        if (!onboarding) syncBackground(context, refresh = enabled)
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         notificationHint = !it
         setNotifications(it)
+    }
+    val toggleNotifications: (Boolean) -> Unit = { enabled ->
+        if (enabled && Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            notificationHint = false
+            setNotifications(enabled)
+        }
     }
     fun openLink(url: String) {
         val uri = Uri.parse(url)
@@ -132,15 +148,16 @@ private fun ScheduleScreen(
         }
     }
     LaunchedEffect(refresh) { regions = withContext(Dispatchers.IO) { repository.regions() } }
-    LaunchedEffect(lifecycle, region, refresh, now.toLocalDate()) {
+    LaunchedEffect(lifecycle, region, refresh, now.toLocalDate(), syncSeconds, onboarding, regionChosen) {
         loading = true
+        if (onboarding && !regionChosen) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 val startedAt = android.os.SystemClock.elapsedRealtime()
                 download = withContext(Dispatchers.IO) { repository.schedule(region) }
-                download?.let { applyDownload(context, region, it) }
+                if (!onboarding) download?.let { applyDownload(context, region, it) }
                 loading = false
-                delay((refreshIntervalMillis - (android.os.SystemClock.elapsedRealtime() - startedAt)).coerceAtLeast(1_000L))
+                delay((syncSeconds * 1000L - (android.os.SystemClock.elapsedRealtime() - startedAt)).coerceAtLeast(1_000L))
             }
         }
     }
@@ -158,95 +175,146 @@ private fun ScheduleScreen(
     val currentMinute = now.hour * 60 + now.minute
 
     val colors = MaterialTheme.colorScheme
-    Scaffold(containerColor = colors.surface) { insets ->
+    val scheduleScroll = rememberScrollState()
+    val settingsScroll = rememberScrollState()
+    Scaffold(containerColor = colors.surface, bottomBar = {
+        if (!onboarding) NavigationBar {
+            NavigationBarItem(selected = !settings, onClick = { settings = false },
+                icon = { Text("▤", style = MaterialTheme.typography.titleLarge) }, label = { Text("Графік") })
+            NavigationBarItem(selected = settings, onClick = { settings = true },
+                icon = { Text("⚙", style = MaterialTheme.typography.titleLarge) }, label = { Text("Параметри") })
+        }
+    }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 640.dp).fillMaxWidth()
-                .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                .verticalScroll(if (settings || onboarding) settingsScroll else scheduleScroll).padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_svitlo_mark), null, Modifier.size(28.dp), tint = colors.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("єСвітло", style = MaterialTheme.typography.titleLarge, color = colors.primary,
-                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Button(onClick = { refresh++ }, enabled = !loading) { Text("↻  Оновити") }
-                }
-                Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = { picker = "region" }) { Text("Регіон") }
-                    FilledTonalButton(onClick = { picker = "group" }, enabled = groups.isNotEmpty()) {
-                        Text(selected?.let { "Черга $it" } ?: "Черга")
+                if (onboarding || settings) {
+                    Text(if (onboarding) "Налаштуймо єСвітло" else "Параметри",
+                        style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    if (onboarding) Text("Оберіть регіон і чергу. Сповіщення можна ввімкнути одразу або пізніше.")
+                    FilledTonalButton(onClick = { picker = "region" }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (onboarding && !regionChosen) "Обрати регіон" else "Регіон · $regionName")
                     }
-                }
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                schedule?.notice?.let { notice ->
-                    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer) {
-                        Text(if (download?.offline == true || schedule.noticeStale) "Збережене попередження\n$notice" else notice,
-                            Modifier.fillMaxWidth().padding(16.dp))
-                    }
-                }
-                Surface(shape = RoundedCornerShape(32.dp), color = colors.surfaceContainer) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            listOf("Сьогодні", "Завтра").forEachIndexed { index, label ->
-                                SegmentedButton(
-                                    selected = tomorrow == (index == 1), onClick = { tomorrow = index == 1 },
-                                    shape = SegmentedButtonDefaults.itemShape(index, 2), label = { Text(label) }
-                                )
-                            }
+                    if (regions.isEmpty()) TextButton(onClick = { refresh++ }) { Text("Повторити завантаження регіонів") }
+                    if (!onboarding || regionChosen) {
+                        OutlinedButton(onClick = { picker = "group" }, modifier = Modifier.fillMaxWidth(),
+                            enabled = groups.isNotEmpty()) {
+                            Text((if (onboarding) group else selected)?.let { "Черга · $it" } ?: "Обрати чергу")
                         }
-                        Text(date.format(calendarLabel), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (cached && intervals != null) Text("Збережений графік · актуальність не підтверджено", color = colors.onSurfaceVariant)
-                        if (intervals == null) {
-                            Text(when {
-                                loading -> "Завантажуємо графік…"
-                                download?.offline == true -> "Немає зв’язку. На цю дату графік не збережено."
-                                else -> "На цю дату графік для вибраної черги наразі недоступний."
-                            }, Modifier.padding(vertical = 20.dp))
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                intervals.forEach { interval ->
-                                    IntervalRow(interval, !tomorrow && currentMinute in interval.start until interval.end)
-                                }
-                            }
-                            HorizontalDivider()
-                            schedule?.updated?.takeIf { date.toString() !in schedule.retained }?.let { stamp ->
-                                runCatching { Instant.parse(stamp).atZone(kyiv).format(updatedLabel) }.getOrNull()?.let {
-                                    Text("Графік оновлено $it", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
+                        if (onboarding && loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        if (onboarding && !loading && groups.isEmpty()) {
+                            Text("Черги поки недоступні. Їх можна вибрати в параметрах пізніше.")
+                            TextButton(onClick = { refresh++ }) { Text("Повторити") }
                         }
                     }
+                    if (!onboarding) {
+                        OutlinedButton(onClick = { picker = "theme" }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Тема · ${theme.label}  ›")
+                        }
+                        OutlinedButton(onClick = { picker = "sync" }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Частота синхронізації · $syncSeconds с  ›")
+                        }
+                        Text("Інтервал діє у відкритому застосунку. Фонові перевірки Android планує окремо.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Сповіщення про зміни графіка та попередження", Modifier.weight(1f).padding(end = 12.dp))
+                        Switch(checked = notifications, onCheckedChange = toggleNotifications)
+                    }
+                    if (notificationHint) TextButton(onClick = {
+                        context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+                    }) { Text("Дозволити сповіщення в налаштуваннях Android") }
+                    if (onboarding) {
+                        Button(onClick = {
+                            saveRegion(region)
+                            group?.let { saveQueue(region, it) }
+                            prefs.edit().putBoolean("setupComplete", true).apply()
+                            onboarding = false
+                            syncBackground(context, refresh = notifications)
+                        }, modifier = Modifier.fillMaxWidth(),
+                            enabled = regionChosen && (group != null || !loading && groups.isEmpty())) {
+                            Text(if (group != null || !regionChosen) "Почати" else "Продовжити без черги")
+                        }
+                    } else {
+                        HorizontalDivider()
+                        regions.find { it.code == region }?.source?.let { source ->
+                            TextButton(onClick = { openLink(source) }) { Text("Сайт оператора ↗") }
+                        }
+                        TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
+                        TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
+                        TextButton(onClick = { openLink("https://yesvitlo.pp.ua/") }) { Text("Сайт єСвітло ↗") }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.ic_svitlo_mark), null, Modifier.size(28.dp), tint = colors.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("єСвітло", style = MaterialTheme.typography.titleLarge, color = colors.primary,
+                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Button(onClick = { refresh++ }, enabled = !loading) { Text("↻  Оновити") }
+                    }
+                    Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    Text(selected?.let { "Черга $it" } ?: "Чергу не вибрано", color = colors.onSurfaceVariant)
+                    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    schedule?.notice?.let { notice ->
+                        OperatorNotice(notice, download?.offline == true || schedule.noticeStale)
+                    }
+                    Surface(shape = RoundedCornerShape(32.dp), color = colors.surfaceContainer) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                listOf("Сьогодні", "Завтра").forEachIndexed { index, label ->
+                                    SegmentedButton(
+                                        selected = tomorrow == (index == 1), onClick = { tomorrow = index == 1 },
+                                        shape = SegmentedButtonDefaults.itemShape(index, 2), label = { Text(label) }
+                                    )
+                                }
+                            }
+                            Text(date.format(calendarLabel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (cached && intervals != null) Text("Збережений графік · актуальність не підтверджено", color = colors.onSurfaceVariant)
+                            if (intervals == null) {
+                                Text(when {
+                                    loading -> "Завантажуємо графік…"
+                                    download?.offline == true -> "Немає зв’язку. На цю дату графік не збережено."
+                                    else -> "На цю дату графік для вибраної черги наразі недоступний."
+                                }, Modifier.padding(vertical = 20.dp))
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    intervals.forEach { interval ->
+                                        IntervalRow(interval, !tomorrow && currentMinute in interval.start until interval.end)
+                                    }
+                                }
+                                HorizontalDivider()
+                                schedule?.updated?.takeIf { date.toString() !in schedule.retained }?.let { stamp ->
+                                    runCatching { Instant.parse(stamp).atZone(kyiv).format(updatedLabel) }.getOrNull()?.let {
+                                        Text("Графік оновлено $it", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text("Час київський. Фактичні відключення можуть відрізнятися від графіка.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
-                Text("Час київський. Фактичні відключення можуть відрізнятися від графіка.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = { picker = "theme" }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Тема · ${theme.label}  ›")
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Сповіщення про зміни графіка та попередження", Modifier.weight(1f).padding(end = 12.dp))
-                    Switch(checked = notifications, onCheckedChange = { enabled ->
-                        if (enabled && Build.VERSION.SDK_INT >= 33 &&
-                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-                            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        else setNotifications(enabled)
-                    })
-                }
-                if (notificationHint) TextButton(onClick = {
-                    context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
-                }) { Text("Дозволити сповіщення в налаштуваннях Android") }
-                HorizontalDivider()
-                regions.find { it.code == region }?.source?.let { source ->
-                    TextButton(onClick = { openLink(source) }) { Text("Сайт оператора ↗") }
-                }
-                TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
-                TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
             }
         }
     }
 
-    if (picker == "theme") {
+    if (picker == "sync") {
+        AlertDialog(onDismissRequest = { picker = null }, title = { Text("Частота синхронізації") },
+            text = {
+                Column {
+                    syncOptions.forEach { seconds ->
+                        TextButton(onClick = {
+                            syncSeconds = seconds
+                            prefs.edit().putInt("syncSeconds", seconds).apply()
+                            picker = null
+                        }) { Text(if (seconds == syncSeconds) "✓ $seconds с" else "$seconds с") }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
+    } else if (picker == "theme") {
         AlertDialog(onDismissRequest = { picker = null }, title = { Text("Тема застосунку") },
             text = {
                 Column {
@@ -269,12 +337,13 @@ private fun ScheduleScreen(
                     items(options, key = { it.first }) { (code, name) ->
                         TextButton(onClick = {
                             if (choosingRegion) {
+                                regionChosen = true
                                 region = code
                                 group = savedQueue(code)
-                                saveRegion(code)
+                                if (!onboarding) saveRegion(code)
                             } else {
                                 group = code
-                                saveQueue(region, code)
+                                if (!onboarding) saveQueue(region, code)
                             }
                             picker = null
                         }, modifier = Modifier.fillMaxWidth()) {
@@ -284,6 +353,28 @@ private fun ScheduleScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
+    }
+}
+
+@Composable
+private fun OperatorNotice(message: String, stale: Boolean) {
+    var expanded by rememberSaveable(message) { mutableStateOf(false) }
+    var truncated by remember(message) { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    Surface(shape = RoundedCornerShape(24.dp), color = colors.errorContainer,
+        contentColor = colors.onErrorContainer) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(if (stale) "Збережене попередження" else "Попередження оператора",
+                style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 4.dp))
+            Text(message, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (!expanded) truncated = it.hasVisualOverflow })
+            if (truncated || expanded) {
+                TextButton(onClick = { expanded = !expanded },
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.onErrorContainer)) {
+                    Text(if (expanded) "Згорнути  ↑" else "Читати далі  ↓")
+                }
+            }
+        }
     }
 }
 

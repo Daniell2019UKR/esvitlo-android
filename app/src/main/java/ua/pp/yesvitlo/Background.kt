@@ -72,7 +72,7 @@ fun applyDownload(context: Context, region: String, download: Download) {
             if (previous != signature && (previous?.startsWith("${day.date}:") == true ||
                         day.date > now && prefs.getString("baseline:$region:$group", null) == now.toString())) {
                 changes += if (previous?.startsWith("${day.date}:") == true)
-                    "Оновлено графік на ${day.date.format(dayMonth)}" else "Додано графік на завтра"
+                    "Оновлено графік на ${day.date.format(notificationDate)}" else "Додано графік на ${day.date.format(notificationDate)}"
             }
             edit.putString(key, signature)
         }
@@ -97,7 +97,7 @@ fun applyDownload(context: Context, region: String, download: Download) {
         .setAutoCancel(true).setContentIntent(openApp(context)).build())
 }
 
-private val dayMonth = java.time.format.DateTimeFormatter.ofPattern("dd-MM")
+private val notificationDate = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")
 private val widgetTypes = listOf(StatusWidget::class.java, NextWidget::class.java, ScheduleWidget::class.java)
 private fun hasWidgets(context: Context) = widgetTypes.any {
     AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, it)).isNotEmpty()
