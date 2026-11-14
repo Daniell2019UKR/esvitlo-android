@@ -48,7 +48,12 @@ private enum class ThemeMode(val label: String) {
 private val locale = Locale.forLanguageTag("uk-UA")
 private val calendarLabel = DateTimeFormatter.ofPattern("dd-MM-yyyy", locale)
 private val updatedLabel = DateTimeFormatter.ofPattern("dd-MM-yyyy · HH:mm", locale)
-private val syncOptions = listOf(15, 30, 60, 120)
+private val syncOptions = listOf(30, 60, 120, 300, 600, 900, 1800, 3600)
+private fun syncLabel(seconds: Int) = when {
+    seconds == 3600 -> "1 год"
+    seconds >= 60 -> "${seconds / 60} хв"
+    else -> "$seconds с"
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,7 +119,9 @@ private fun ScheduleScreen(
     var onboarding by rememberSaveable { mutableStateOf(!prefs.getBoolean("setupComplete", prefs.contains("queue:$initialRegion"))) }
     var regionChosen by rememberSaveable { mutableStateOf(false) }
     var settings by rememberSaveable { mutableStateOf(false) }
-    var syncSeconds by remember { mutableIntStateOf(prefs.getInt("syncSeconds", 30)) }
+    var syncSeconds by remember {
+        mutableIntStateOf(prefs.getInt("syncSeconds", 30).takeIf { it in syncOptions } ?: 30)
+    }
     BackHandler(settings && !onboarding) { settings = false }
     var notifications by remember { mutableStateOf(prefs.getBoolean(notificationSetting, false)) }
     var notificationHint by remember { mutableStateOf(false) }
@@ -220,7 +227,7 @@ private fun ScheduleScreen(
                             Text("Тема · ${theme.label}  ›")
                         }
                         OutlinedButton(onClick = { picker = "sync" }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Частота синхронізації · $syncSeconds с  ›")
+                            Text("Частота синхронізації · ${syncLabel(syncSeconds)}  ›")
                         }
                         Text("Інтервал діє у відкритому застосунку. Фонові перевірки Android планує окремо.",
                             style = MaterialTheme.typography.bodySmall)
@@ -311,13 +318,13 @@ private fun ScheduleScreen(
     if (picker == "sync") {
         AlertDialog(onDismissRequest = { picker = null }, title = { Text("Частота синхронізації") },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     syncOptions.forEach { seconds ->
                         TextButton(onClick = {
                             syncSeconds = seconds
                             prefs.edit().putInt("syncSeconds", seconds).apply()
                             picker = null
-                        }) { Text(if (seconds == syncSeconds) "✓ $seconds с" else "$seconds с") }
+                        }) { Text(if (seconds == syncSeconds) "✓ ${syncLabel(seconds)}" else syncLabel(seconds)) }
                     }
                 }
             },
