@@ -1,0 +1,3 @@
+<resources>
+    <color name="widget_on_text">@android:color/system_accent1_900</color>
+</resources>

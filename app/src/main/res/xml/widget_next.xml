@@ -1,7 +1,7 @@
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="110dp" android:minHeight="110dp" android:minResizeHeight="110dp"
+    android:minWidth="220dp" android:minHeight="110dp" android:minResizeHeight="110dp"
     android:maxResizeHeight="215dp"
-    android:targetCellWidth="2" android:targetCellHeight="2"
-    android:initialLayout="@layout/widget_live_rows" android:previewImage="@drawable/ic_svitlo_mark"
-    android:resizeMode="horizontal|vertical" android:updatePeriodMillis="0"
+    android:targetCellWidth="4" android:targetCellHeight="2"
+    android:initialLayout="@layout/widget_reference" android:previewImage="@drawable/ic_svitlo_mark"
+    android:resizeMode="vertical" android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />

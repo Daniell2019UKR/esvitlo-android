@@ -1,0 +1,38 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_background" android:padding="8dp" android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingHorizontal="4dp" android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="32dp" android:layout_height="32dp" android:padding="6dp"
+            android:background="@drawable/widget_badge" android:src="@drawable/ic_svitlo_mark"
+            android:tint="@color/widget_text" android:contentDescription="єСвітло" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="8dp" android:orientation="vertical">
+            <TextView android:id="@+id/reference_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="@color/widget_text" android:textSize="15sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+            <TextView android:id="@+id/reference_updated" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="@color/widget_muted" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
+        </LinearLayout>
+        <ImageView android:id="@+id/reference_warning" android:layout_width="16dp" android:layout_height="16dp"
+            android:src="@drawable/ic_widget_warning" android:tint="@color/widget_text"
+            android:contentDescription="Попередження оператора" android:visibility="gone" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/current_row" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="8dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageView android:id="@+id/current_icon" android:layout_width="26dp" android:layout_height="26dp"
+            android:padding="5dp" android:background="@drawable/widget_badge" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/current_status" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:layout_marginStart="7dp" android:textStyle="bold" android:textSize="13sp" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/current_range" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="4dp" android:textStyle="bold" android:textSize="14sp" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/next_row" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="5dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+        <ImageView android:id="@+id/next_icon" android:layout_width="26dp" android:layout_height="26dp"
+            android:padding="5dp" android:background="@drawable/widget_badge" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/next_status" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:layout_marginStart="7dp" android:textStyle="bold" android:textSize="13sp" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/next_range" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="4dp" android:textStyle="bold" android:textSize="14sp" android:maxLines="1" />
+    </LinearLayout>
+</LinearLayout>
