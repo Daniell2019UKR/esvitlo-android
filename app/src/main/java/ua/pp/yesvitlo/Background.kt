@@ -146,7 +146,7 @@ private fun liveWidget(context: Context, today: List<Interval>, tomorrow: List<I
     return RemoteViews(context.packageName, R.layout.widget_live).apply {
         if (narrow) {
             val inset = (5 * colors.displayMetrics.density).toInt()
-            setViewPadding(R.id.widget_root, inset, inset, inset, inset)
+            setViewPadding(android.R.id.background, inset, inset, inset, inset)
         }
         setTextViewText(R.id.widget_note, note)
         setViewVisibility(R.id.widget_warning, if (warning) android.view.View.VISIBLE else android.view.View.GONE)
@@ -173,7 +173,7 @@ private fun liveWidget(context: Context, today: List<Interval>, tomorrow: List<I
         bind(R.id.live_current_time, R.id.live_current_state, current, "Зараз", "Немає графіка")
         bind(R.id.live_next_time, R.id.live_next_state, upcoming,
             if (upcomingToday == null && upcoming != null) "Завтра" else "Далі", "Немає графіка")
-        setOnClickPendingIntent(R.id.widget_root, openApp(context))
+        setOnClickPendingIntent(android.R.id.background, openApp(context))
     }
 }
 
@@ -228,9 +228,7 @@ fun updateWidgets(context: Context, download: Download? = null) {
             val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
             val limit = if (index == 0) 2 else 7
             val metrics = context.resources.displayMetrics
-            val paint = android.graphics.Paint().apply {
-                typeface = android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)
-            }
+            val paint = android.graphics.Paint()
             val roomy = width >= 240 && height >= 112
             val maxSize = if (roomy) 23 else 17
             val reserved = if (roomy) 77 else 47
@@ -260,7 +258,7 @@ fun updateWidgets(context: Context, download: Download? = null) {
                 val regionName = if (roomy) repository.cachedRegions().find { it.code == region }?.name else null
                 setTextViewText(R.id.widget_note, listOfNotNull(regionName, group, if (stale) "Кеш" else null).joinToString(" · "))
                 setViewVisibility(R.id.widget_warning, if (schedule?.notice != null) android.view.View.VISIBLE else android.view.View.GONE)
-                setOnClickPendingIntent(R.id.widget_root, openApp(context))
+                setOnClickPendingIntent(android.R.id.background, openApp(context))
             })
         }
     }
