@@ -282,14 +282,14 @@ private fun ScheduleScreen(
                         OutlinedButton(onClick = { picker = "theme" }, modifier = Modifier.fillMaxWidth()) {
                             Text("Тема · ${theme.label}  ›")
                         }
+                        OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy,
+                            modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення") }
+                        if (updateStatus.isNotEmpty()) Text(updateStatus)
                         OutlinedButton(onClick = { picker = "sync" }, modifier = Modifier.fillMaxWidth()) {
                             Text("Частота синхронізації · ${syncLabel(syncSeconds)}  ›")
                         }
                         Text("Інтервал діє у відкритому застосунку. Фонові перевірки Android планує окремо.",
                             style = MaterialTheme.typography.bodySmall)
-                        OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy,
-                            modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення") }
-                        if (updateStatus.isNotEmpty()) Text(updateStatus)
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Сповіщення про зміни графіка та попередження", Modifier.weight(1f).padding(end = 12.dp))
