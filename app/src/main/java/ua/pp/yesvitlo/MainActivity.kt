@@ -372,8 +372,13 @@ private fun OperatorNotice(message: String, stale: Boolean) {
     Surface(shape = RoundedCornerShape(24.dp), color = colors.errorContainer,
         contentColor = colors.onErrorContainer) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(if (stale) "Збережене попередження" else "Попередження оператора",
-                style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 4.dp))
+            Row(Modifier.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(painterResource(R.drawable.ic_widget_warning), contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Text(if (stale) "Збережене попередження" else "Попередження оператора",
+                    style = MaterialTheme.typography.titleSmall)
+            }
             Text(message, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis,
                 onTextLayout = { if (!expanded) truncated = it.hasVisualOverflow })
             if (truncated || expanded) {
