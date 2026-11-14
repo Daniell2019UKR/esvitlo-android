@@ -106,7 +106,7 @@ private fun dayBar(day: List<Interval>): android.graphics.Bitmap {
     canvas.drawRoundRect(0f, 0f, 192f, 16f, 7f, 7f, brush)
     for (interval in day) {
         if (interval.power == Power.ON) continue
-        brush.color = if (interval.power == Power.OFF) 0xffffa65c.toInt() else 0xffa7a5ad.toInt()
+        brush.color = if (interval.power == Power.OFF) 0xfff14550.toInt() else 0xffa7a5ad.toInt()
         val start = interval.start * 192f / 1440
         val end = interval.end * 192f / 1440
         canvas.drawRoundRect(start, 0f, end, 16f, 4f, 4f, brush)
