@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZonedDateTime
@@ -116,6 +117,61 @@ private fun ScheduleScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("esvitlo", android.content.Context.MODE_PRIVATE) }
+    val updateScope = rememberCoroutineScope()
+    var update by remember { mutableStateOf<AppUpdate?>(null) }
+    var updateStatus by remember { mutableStateOf("") }
+    var updateBusy by remember { mutableStateOf(false) }
+    var updatePrompt by remember { mutableStateOf(false) }
+    val installerPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val file = java.io.File(context.cacheDir, "updates/esvitlo.apk")
+        if (context.packageManager.canRequestPackageInstalls() && file.isFile) {
+            runCatching { installUpdate(context, file) }.onFailure { updateStatus = "Не вдалося відкрити інсталятор." }
+        } else updateStatus = "Дозвольте встановлення з цього джерела й повторіть спробу."
+    }
+    fun checkUpdate(manual: Boolean) {
+        if (updateBusy) return
+        updateBusy = true
+        updateScope.launch {
+            try {
+                update = withContext(Dispatchers.IO) { latestUpdate() }
+                prefs.edit().putLong("lastUpdateCheck", System.currentTimeMillis()).apply()
+                updatePrompt = update != null
+                updateStatus = if (update == null && manual) "Установлено останню версію." else ""
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (manual) updateStatus = "Не вдалося перевірити оновлення."
+            } finally { updateBusy = false }
+        }
+    }
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (System.currentTimeMillis() - prefs.getLong("lastUpdateCheck", 0) >= 86_400_000L) checkUpdate(false)
+        }
+    }
+    if (updatePrompt) update?.let { available ->
+        AlertDialog(onDismissRequest = { updatePrompt = false }, title = { Text("Доступна версія ${available.version}") },
+            text = { Text("Завантажити APK з GitHub і відкрити інсталятор Android?") },
+            dismissButton = { TextButton(onClick = { updatePrompt = false }) { Text("Пізніше") } },
+            confirmButton = { TextButton(onClick = {
+                updatePrompt = false
+                updateBusy = true
+                updateStatus = "Завантажуємо оновлення…"
+                updateScope.launch {
+                    try {
+                        val file = withContext(Dispatchers.IO) { downloadUpdate(context, available) }
+                        updateStatus = "Оновлення готове до встановлення."
+                        if (context.packageManager.canRequestPackageInstalls()) installUpdate(context, file)
+                        else installerPermission.launch(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${context.packageName}")))
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        updateStatus = "Не вдалося завантажити або перевірити APK."
+                    } finally { updateBusy = false }
+                }
+            }) { Text("Оновити") } })
+    }
     var onboarding by rememberSaveable { mutableStateOf(!prefs.getBoolean("setupComplete", prefs.contains("queue:$initialRegion"))) }
     var regionChosen by rememberSaveable { mutableStateOf(false) }
     var settings by rememberSaveable { mutableStateOf(false) }
@@ -258,6 +314,8 @@ private fun ScheduleScreen(
                             TextButton(onClick = { openLink(source) }) { Text("Сайт оператора ↗") }
                         }
                         TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
+                        OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy) { Text("Перевірити оновлення") }
+                        if (updateStatus.isNotEmpty()) Text(updateStatus)
                         TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
                         TextButton(onClick = { openLink("https://yesvitlo.pp.ua/") }) { Text("Сайт єСвітло ↗") }
                     }
