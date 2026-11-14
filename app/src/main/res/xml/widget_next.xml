@@ -5,4 +5,5 @@
     android:targetCellWidth="4" android:targetCellHeight="2"
     android:initialLayout="@layout/widget_reference" android:previewImage="@drawable/ic_svitlo_mark"
     android:resizeMode="horizontal|vertical" android:updatePeriodMillis="0"
+    android:configure="ua.pp.yesvitlo.WidgetSetup" android:widgetFeatures="reconfigurable"
     android:widgetCategory="home_screen" />

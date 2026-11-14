@@ -57,8 +57,14 @@ private fun syncLabel(seconds: Int) = when {
 }
 
 class MainActivity : ComponentActivity() {
+    private var requestedPlace by mutableStateOf<String?>(null)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        requestedPlace = intent.getStringExtra("place")
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedPlace = intent.getStringExtra("place")
         val prefs = getSharedPreferences("esvitlo", MODE_PRIVATE)
         setContent {
             var theme by remember { mutableStateOf(ThemeMode.entries.find { it.name == prefs.getString("theme", null) } ?: ThemeMode.SYSTEM) }
@@ -70,6 +76,7 @@ class MainActivity : ComponentActivity() {
             }
             ExpressiveTheme(dark) {
                 ScheduleScreen(
+                    requestedPlace = requestedPlace, clearRequestedPlace = { requestedPlace = null },
                     repository = remember { ScheduleRepository(prefs) },
                     initialRegion = prefs.getString("region", "o") ?: "o",
                     savedQueue = { prefs.getString("queue:$it", null) },
@@ -101,6 +108,7 @@ private fun ExpressiveTheme(dark: Boolean, content: @Composable () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScheduleScreen(
+    requestedPlace: String?, clearRequestedPlace: () -> Unit,
     repository: ScheduleRepository, initialRegion: String, savedQueue: (String) -> String?,
     saveRegion: (String) -> Unit, saveQueue: (String, String) -> Unit,
     theme: ThemeMode, selectTheme: (ThemeMode) -> Unit
@@ -173,6 +181,29 @@ private fun ScheduleScreen(
             }) { Text("Оновити") } })
     }
     var onboarding by rememberSaveable { mutableStateOf(!prefs.getBoolean("setupComplete", prefs.contains("queue:$initialRegion"))) }
+    var places by remember { mutableStateOf(prefs.places()) }
+    var activePlace by rememberSaveable { mutableStateOf(prefs.getString("activePlace", "home")) }
+    var editingPlace by remember { mutableStateOf<Place?>(null) }
+    var placeSchedules by remember { mutableStateOf(emptyMap<String, Schedule>()) }
+    fun selectPlace(place: Place) {
+        activePlace = place.id
+        region = place.region
+        group = place.queue
+        prefs.edit().putString("activePlace", place.id).apply()
+        saveRegion(place.region)
+        place.queue?.let { saveQueue(place.region, it) }
+    }
+    fun persistPlaces(next: List<Place>) {
+        places = next
+        prefs.savePlaces(next)
+        syncPush(context)
+        updateWidgets(context)
+    }
+    LaunchedEffect(requestedPlace) {
+        val id = requestedPlace ?: return@LaunchedEffect
+        places.find { it.id == id }?.let(::selectPlace)
+        clearRequestedPlace()
+    }
     var regionChosen by rememberSaveable { mutableStateOf(false) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var syncSeconds by remember {
@@ -183,6 +214,10 @@ private fun ScheduleScreen(
     var notificationHint by remember { mutableStateOf(false) }
     fun setNotifications(enabled: Boolean) {
         notifications = enabled
+        if (enabled && places.none { it.alerts }) {
+            places = places.map { if (it.id == activePlace) it.copy(alerts = true) else it }
+            if (!onboarding) prefs.savePlaces(places)
+        }
         prefs.edit().putBoolean(notificationSetting, enabled).apply()
         if (!onboarding) {
             syncPush(context)
@@ -218,7 +253,8 @@ private fun ScheduleScreen(
         }
     }
     LaunchedEffect(refresh) { regions = withContext(Dispatchers.IO) { repository.regions() } }
-    LaunchedEffect(lifecycle, region, refresh, now.toLocalDate(), syncSeconds, onboarding, regionChosen) {
+    val monitoredRegions = places.map { it.region }.distinct().sorted()
+    LaunchedEffect(lifecycle, region, refresh, now.toLocalDate(), syncSeconds, onboarding, regionChosen, monitoredRegions) {
         loading = true
         if (onboarding && !regionChosen) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -227,6 +263,16 @@ private fun ScheduleScreen(
                 download = withContext(Dispatchers.IO) { repository.schedule(region) }
                 if (!onboarding) download?.let { applyDownload(context, region, it) }
                 loading = false
+                if (!onboarding) {
+                    val schedules = mutableMapOf<String, Schedule>()
+                    download?.let { schedules[region] = it.schedule }
+                    for (code in monitoredRegions.filter { it != region }) {
+                        val nearby = withContext(Dispatchers.IO) { repository.schedule(code) }
+                        schedules[code] = nearby.schedule
+                        applyDownload(context, code, nearby)
+                    }
+                    placeSchedules = schedules
+                }
                 delay((syncSeconds * 1000L - (android.os.SystemClock.elapsedRealtime() - startedAt)).coerceAtLeast(1_000L))
             }
         }
@@ -263,11 +309,25 @@ private fun ScheduleScreen(
                     Text(if (onboarding) "Налаштуймо єСвітло" else "Параметри",
                         style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     if (onboarding) Text("Оберіть регіон і чергу. Сповіщення можна ввімкнути одразу або пізніше.")
-                    FilledTonalButton(onClick = { picker = "region" }, modifier = Modifier.fillMaxWidth()) {
+                    if (!onboarding) {
+                        Text("Мої локації", style = MaterialTheme.typography.titleLarge)
+                        for (place in places) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { selectPlace(place) }, modifier = Modifier.weight(1f)) {
+                                    Text((if (place.id == activePlace) "✓ " else "") + place.name)
+                                }
+                                TextButton(onClick = { editingPlace = place }) { Text("Змінити") }
+                            }
+                        }
+                        FilledTonalButton(onClick = {
+                            editingPlace = Place(java.util.UUID.randomUUID().toString(), "", region, null, false)
+                        }) { Text("Додати локацію") }
+                    }
+                    if (onboarding) FilledTonalButton(onClick = { picker = "region" }, modifier = Modifier.fillMaxWidth()) {
                         Text(if (onboarding && !regionChosen) "Обрати регіон" else "Регіон · $regionName")
                     }
                     if (regions.isEmpty()) TextButton(onClick = { refresh++ }) { Text("Повторити завантаження регіонів") }
-                    if (!onboarding || regionChosen) {
+                    if (onboarding && regionChosen) {
                         OutlinedButton(onClick = { picker = "group" }, modifier = Modifier.fillMaxWidth(),
                             enabled = groups.isNotEmpty()) {
                             Text((if (onboarding) group else selected)?.let { "Черга · $it" } ?: "Обрати чергу")
@@ -304,6 +364,7 @@ private fun ScheduleScreen(
                             saveRegion(region)
                             group?.let { saveQueue(region, it) }
                             prefs.edit().putBoolean("setupComplete", true).apply()
+                            persistPlaces(prefs.places())
                             onboarding = false
                             syncPush(context)
                             syncBackground(context, refresh = notifications)
@@ -319,6 +380,8 @@ private fun ScheduleScreen(
                         TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
                         TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
                         TextButton(onClick = { openLink("https://yesvitlo.pp.ua/") }) { Text("Сайт єСвітло ↗") }
+                        Text("Версія ${BuildConfig.VERSION_NAME} · збірка ${BuildConfig.VERSION_CODE}",
+                            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -329,6 +392,9 @@ private fun ScheduleScreen(
                         Button(onClick = { refresh++ }, enabled = !loading) { Text("↻  Оновити") }
                     }
                     Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    if (places.size > 1) FilledTonalButton(onClick = { picker = "places" }) {
+                        Text(places.find { it.id == activePlace }?.name ?: "Мої локації")
+                    }
                     Text(selected?.let { "Черга $it" } ?: "Чергу не вибрано", color = colors.onSurfaceVariant)
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     schedule?.notice?.let { notice ->
@@ -374,7 +440,38 @@ private fun ScheduleScreen(
         }
     }
 
-    if (picker == "sync") {
+    editingPlace?.let { place ->
+        PlaceEditor(place, regions, repository, onClose = { editingPlace = null }, onSave = { updated ->
+            persistPlaces(if (places.any { it.id == updated.id }) places.map { if (it.id == updated.id) updated else it }
+                else places + updated)
+            selectPlace(updated)
+            editingPlace = null
+        }, onDelete = if (places.size > 1 && places.any { it.id == place.id }) ({
+            val remaining = places.filterNot { it.id == place.id }
+            persistPlaces(remaining)
+            if (activePlace == place.id) selectPlace(remaining.first())
+            editingPlace = null
+        }) else null)
+    }
+    if (picker == "places") {
+        AlertDialog(onDismissRequest = { picker = null }, title = { Text("Мої локації") },
+            text = { LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                items(places, key = { it.id }) { place ->
+                    TextButton(onClick = { selectPlace(place); picker = null }) {
+                        Column {
+                            Text(listOfNotNull(place.name, regions.find { it.code == place.region }?.name, place.queue).joinToString(" · "))
+                            val day = placeSchedules[place.region]?.days?.find { it.date == today }
+                            val slot = day?.groups?.get(place.queue)?.firstOrNull { currentMinute in it.start until it.end }
+                            Text(when (slot?.power) {
+                                Power.ON -> "За графіком світло є · до " + clock(slot.end)
+                                Power.OFF -> "За графіком світла немає · до " + clock(slot.end)
+                                else -> "Немає даних"
+                            }, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            } }, confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
+    } else if (picker == "sync") {
         AlertDialog(onDismissRequest = { picker = null }, title = { Text("Частота синхронізації") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {

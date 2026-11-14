@@ -26,10 +26,9 @@ class PushSubscriptionWorker(context: Context, params: WorkerParameters) : Corou
     override suspend fun doWork(): Result {
         if (!pushConfigured(applicationContext)) return Result.success()
         val prefs = applicationContext.getSharedPreferences("esvitlo", Context.MODE_PRIVATE)
-        val region = prefs.getString("region", "o") ?: "o"
-        val group = prefs.getString("queue:$region", null)
-        val desired = if (prefs.getBoolean(notificationSetting, false)) setOfNotNull(
-            "notice-$region", group?.let { "schedule-$region-$it" }) else emptySet()
+        val desired = if (prefs.getBoolean(notificationSetting, false)) prefs.places().filter { it.alerts }
+            .flatMap { place -> listOfNotNull("notice-${place.region}", place.queue?.let { "schedule-${place.region}-$it" }) }
+            .toSet() else emptySet()
         val subscribed = prefs.getStringSet("pushTopics", emptySet()).orEmpty().toMutableSet()
         val messaging = FirebaseMessaging.getInstance()
         return try {
@@ -58,17 +57,18 @@ class PushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val prefs = getSharedPreferences("esvitlo", MODE_PRIVATE)
         if (!prefs.getBoolean(notificationSetting, false)) return
-        val region = prefs.getString("region", "o")
-        if (message.data["region"] != region) return
+        val region = message.data["region"] ?: return
         val group = message.data["group"]
-        if (group != null && group != prefs.getString("queue:$region", null)) return
+        val matching = prefs.places().filter { it.alerts && it.region == region && (group == null || group == it.queue) }
+        if (matching.isEmpty()) return
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return
         val channel = "schedule_updates"
         manager.createNotificationChannel(NotificationChannel(channel, "Графіки та попередження", NotificationManager.IMPORTANCE_DEFAULT))
         val body = message.data["body"] ?: return
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
+        val open = PendingIntent.getActivity(this, (region + group).hashCode(), Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("place", matching.first().id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         manager.notify((message.data["region"] + group).hashCode(), Notification.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_svitlo_mark).setContentTitle(message.data["title"] ?: "єСвітло")

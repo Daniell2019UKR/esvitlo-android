@@ -38,8 +38,8 @@ class ScheduleWorker(context: Context, params: WorkerParameters) : Worker(contex
         val prefs = context.settings()
         val repository = ScheduleRepository(prefs)
         val region = prefs.getString("region", "o") ?: "o"
-        val download = repository.schedule(region)
-        applyDownload(context, region, download)
+        val regions = (prefs.places().map { it.region } + region).distinct()
+        for (code in regions) applyDownload(context, code, repository.schedule(code))
         return Result.success()
     }
 }
@@ -50,20 +50,21 @@ private fun openApp(context: Context) = PendingIntent.getActivity(context, 0,
 @Synchronized
 fun applyDownload(context: Context, region: String, download: Download) {
     val prefs = context.settings()
-    if (region != prefs.getString("region", "o")) return
     val schedule = download.schedule
     prefs.edit().putString("widgetChecked:$region",
         if (!download.offline && !schedule.stale) Instant.now().toString() else null).apply()
-    updateWidgets(context, download)
+    updateWidgets(context, download, region)
     if (download.offline || pushConfigured(context) || !prefs.getBoolean(notificationSetting, false)) return
     if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
     val manager = context.getSystemService(NotificationManager::class.java)
     if (!manager.areNotificationsEnabled()) return
-    val group = prefs.getString("queue:$region", null) ?: schedule.groups.firstOrNull()
+    val matching = prefs.places().filter { it.alerts && it.region == region }
+    if (matching.isEmpty()) return
+    val groups = matching.mapNotNull { it.queue }.distinct()
     val now = ZonedDateTime.now(kyiv).toLocalDate()
     val changes = mutableListOf<String>()
     val edit = prefs.edit()
-    if (group != null && !schedule.stale) {
+    if (!schedule.stale) for (group in groups) {
         for (day in schedule.days.filter { it.date in now..now.plusDays(1) && it.date.toString() !in schedule.retained }) {
             val intervals = day.groups[group] ?: continue
             val key = "seen:$region:$group:${day.date.toEpochDay() % 2}"
@@ -71,7 +72,7 @@ fun applyDownload(context: Context, region: String, download: Download) {
             val previous = prefs.getString(key, null)
             if (previous != signature && (previous?.startsWith("${day.date}:") == true ||
                         day.date > now && prefs.getString("baseline:$region:$group", null) == now.toString())) {
-                changes += if (previous?.startsWith("${day.date}:") == true)
+                changes += "Черга $group · " + if (previous?.startsWith("${day.date}:") == true)
                     "Оновлено графік на ${day.date.format(notificationDate)}" else "Додано графік на ${day.date.format(notificationDate)}"
             }
             edit.putString(key, signature)
@@ -114,34 +115,36 @@ class NextWidget : AppWidgetProvider() {
     }
 }
 
-fun updateWidgets(context: Context, download: Download? = null) {
+fun updateWidgets(context: Context, download: Download? = null, updatedRegion: String? = null) {
     val manager = AppWidgetManager.getInstance(context)
     val ids = manager.getAppWidgetIds(ComponentName(context, NextWidget::class.java))
     if (ids.isEmpty()) return
     val prefs = context.settings()
     val repository = ScheduleRepository(prefs)
-    val region = prefs.getString("region", "o") ?: "o"
-    val schedule = download?.schedule ?: repository.cachedSchedule(region)
-    val group = prefs.getString("queue:$region", null) ?: schedule?.groups?.firstOrNull()
-    val now = ZonedDateTime.now(kyiv)
-    val today = now.toLocalDate()
-    val tomorrow = today.plusDays(1)
-    fun intervals(date: java.time.LocalDate) =
-        schedule?.days?.find { it.date == date }?.groups?.get(group).orEmpty()
-
-    val currentDay = intervals(today)
-    val nextDay = intervals(tomorrow)
-    val stale = download?.offline == true || schedule?.stale != false ||
-        schedule?.retained.orEmpty().any { it == today.toString() || it == tomorrow.toString() } ||
-        runCatching { Instant.parse(prefs.getString("widgetChecked:$region", null)).isBefore(now.toInstant().minusSeconds(1800)) }.getOrDefault(true)
-    val updated = if (stale && (currentDay.isNotEmpty() || nextDay.isNotEmpty())) "Збережений графік" else "Графік відключень"
-    val regionName = repository.cachedRegions().find { it.code == region }?.name ?: "єСвітло"
     for (id in ids) {
+        val place = prefs.widgetPlace(id) ?: continue
+        val region = place.region
+        val latest = download.takeIf { updatedRegion == region }
+        val schedule = latest?.schedule ?: repository.cachedSchedule(region)
+        val group = place.queue ?: schedule?.groups?.firstOrNull()
+        val now = ZonedDateTime.now(kyiv)
+        val today = now.toLocalDate()
+        val tomorrow = today.plusDays(1)
+        fun intervals(date: java.time.LocalDate) =
+            schedule?.days?.find { it.date == date }?.groups?.get(group).orEmpty()
+
+        val currentDay = intervals(today)
+        val nextDay = intervals(tomorrow)
+        val stale = latest?.offline == true || schedule?.stale != false ||
+            schedule?.retained.orEmpty().any { it == today.toString() || it == tomorrow.toString() } ||
+            runCatching { Instant.parse(prefs.getString("widgetChecked:$region", null)).isBefore(now.toInstant().minusSeconds(1800)) }.getOrDefault(true)
+        val updated = if (stale && (currentDay.isNotEmpty() || nextDay.isNotEmpty())) "Збережений графік" else "Графік відключень"
+        val regionName = repository.cachedRegions().find { it.code == region }?.name ?: "єСвітло"
         val width = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
         val compact = width in 1..249 || context.resources.configuration.fontScale > 1.15f
         val layout = if (compact) R.layout.widget_reference_compact else R.layout.widget_reference
         val views = RemoteViews(context.packageName, layout)
-        views.setTextViewText(R.id.reference_title, listOfNotNull(regionName, group).joinToString(" · "))
+        views.setTextViewText(R.id.reference_title, listOfNotNull(place.name, regionName, group).joinToString(" · "))
         views.setTextViewText(R.id.reference_updated, updated)
         views.setViewVisibility(R.id.reference_warning, if (schedule?.notice != null) android.view.View.VISIBLE else android.view.View.GONE)
 
@@ -176,7 +179,9 @@ fun updateWidgets(context: Context, download: Download? = null) {
 
         bind(R.id.current_row, R.id.current_icon, R.id.current_status, R.id.current_range, currentDay, "Сьогодні", false)
         bind(R.id.next_row, R.id.next_icon, R.id.next_status, R.id.next_range, nextDay, "Завтра", true)
-        views.setOnClickPendingIntent(android.R.id.background, openApp(context))
+        views.setOnClickPendingIntent(android.R.id.background, PendingIntent.getActivity(context, id,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra("place", place.id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         manager.updateAppWidget(id, views)
     }
 }
