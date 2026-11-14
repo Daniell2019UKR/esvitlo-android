@@ -22,12 +22,16 @@
             android:gravity="center_vertical" android:orientation="vertical">
             <TextView android:id="@+id/widget_today_label" style="@style/WidgetDayLabel" android:text="Сьогодні" />
             <TextView android:id="@+id/widget_today" style="@style/WidgetIntervals" />
+            <LinearLayout android:id="@+id/widget_today_blocks" android:orientation="vertical"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
             android:background="@drawable/widget_interval_next" android:paddingHorizontal="5dp"
             android:layout_marginStart="4dp" android:gravity="center_vertical" android:orientation="vertical">
             <TextView android:id="@+id/widget_tomorrow_label" style="@style/WidgetDayLabel" android:text="Завтра" />
             <TextView android:id="@+id/widget_tomorrow" style="@style/WidgetIntervals" />
+            <LinearLayout android:id="@+id/widget_tomorrow_blocks" android:orientation="vertical"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

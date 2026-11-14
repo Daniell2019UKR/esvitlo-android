@@ -228,41 +228,45 @@ fun updateWidgets(context: Context, download: Download? = null) {
             val reserved = if (roomy) 50 else 47
             val textSize = ((if (detailed) 14 else maxSize) downTo 10).firstOrNull { size ->
                 paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, size.toFloat(), metrics)
-                paint.measureText(if (detailed) "00:00–24:00  Немає" else "00:00–24:00…") <= (width - 40) * metrics.density / 2 &&
+                paint.measureText(if (detailed) "00:00–24:00  Немає" else "00:00–24:00…") <= (width - if (detailed) 54 else 40) * metrics.density / 2 &&
                     (height <= 0 || paint.fontSpacing <= (height - reserved) * metrics.density)
             } ?: 10
             paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat(), metrics)
-            val rows = if (height > 0) (((height - reserved) * metrics.density) / paint.fontSpacing).toInt().coerceIn(1, limit) else limit
-            fun formatDay(day: List<Interval>): CharSequence {
-                if (!detailed) return outages(day, rows)
-                if (day.isEmpty()) return "Немає графіка"
-                val result = android.text.SpannableStringBuilder()
-                val shown = if (day.size > rows && rows > 1) rows - 1 else rows
-                for (interval in day.take(shown)) {
-                    if (result.isNotEmpty()) result.append('\n')
-                    val start = result.length
-                    val state = when (interval.power) {
-                        Power.ON -> "Є"
-                        Power.OFF -> "Немає"
-                        Power.UNKNOWN -> "Н/д"
-                    }
-                    result.append("${clock(interval.start)}–${clock(interval.end)}  $state")
-                    if (interval.power == Power.OFF) result.setSpan(
-                        android.text.style.ForegroundColorSpan(context.getColor(R.color.widget_off)),
-                        start, result.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-                if (day.size > shown) {
-                    if (rows > shown) result.append("\nЩе ${day.size - shown}") else result.append("…")
-                }
-                return result
-            }
+            val rowHeight = paint.fontSpacing / metrics.density + if (detailed) 9 else 0
+            val rows = if (height > 0) ((height - reserved) / rowHeight).toInt().coerceIn(1, limit) else limit
             manager.updateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_columns).apply {
-                setTextViewText(R.id.widget_today, formatDay(intervals))
-                setTextViewText(R.id.widget_tomorrow, formatDay(tomorrow))
-                setInt(R.id.widget_today, "setMaxLines", rows)
-                setInt(R.id.widget_tomorrow, "setMaxLines", rows)
-                setTextViewTextSize(R.id.widget_today, android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
-                setTextViewTextSize(R.id.widget_tomorrow, android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
+                fun bindDay(textId: Int, blocksId: Int, day: List<Interval>) {
+                    val sp = android.util.TypedValue.COMPLEX_UNIT_SP
+                    if (!detailed || day.isEmpty()) {
+                        setTextViewText(textId, outages(day, rows))
+                        setInt(textId, "setMaxLines", rows)
+                        setTextViewTextSize(textId, sp, textSize.toFloat())
+                        return
+                    }
+                    setViewVisibility(textId, android.view.View.GONE)
+                    setViewVisibility(blocksId, android.view.View.VISIBLE)
+                    removeAllViews(blocksId)
+                    val shown = if (day.size > rows && rows > 1) rows - 1 else rows
+                    fun block(label: String, outage: Boolean = false) {
+                        addView(blocksId, RemoteViews(context.packageName, R.layout.widget_interval_block).apply {
+                            setTextViewText(R.id.widget_block_text, label)
+                            setTextViewTextSize(R.id.widget_block_text, sp, textSize.toFloat())
+                            if (outage) setTextColor(R.id.widget_block_text, context.getColor(R.color.widget_off))
+                        })
+                    }
+                    for ((index, interval) in day.take(shown).withIndex()) {
+                        val state = when (interval.power) {
+                            Power.ON -> "Є"
+                            Power.OFF -> "Немає"
+                            Power.UNKNOWN -> "Н/д"
+                        }
+                        val more = if (rows == 1 && index == 0 && day.size > 1) "…" else ""
+                        block(clock(interval.start) + "–" + clock(interval.end) + "  " + state + more, interval.power == Power.OFF)
+                    }
+                    if (rows > shown) block("Ще " + (day.size - shown))
+                }
+                bindDay(R.id.widget_today, R.id.widget_today_blocks, intervals)
+                bindDay(R.id.widget_tomorrow, R.id.widget_tomorrow_blocks, tomorrow)
                 val labelSize = if (roomy) 14f else 11f
                 setTextViewTextSize(R.id.widget_today_label, android.util.TypedValue.COMPLEX_UNIT_SP, labelSize)
                 setTextViewTextSize(R.id.widget_tomorrow_label, android.util.TypedValue.COMPLEX_UNIT_SP, labelSize)

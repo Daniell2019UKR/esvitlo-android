@@ -1,0 +1,7 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:paddingTop="3dp">
+    <TextView android:id="@+id/widget_block_text" style="@style/WidgetIntervals"
+        android:background="@drawable/widget_interval_surface"
+        android:paddingHorizontal="5dp" android:paddingVertical="3dp" android:maxLines="1" />
+</LinearLayout>
