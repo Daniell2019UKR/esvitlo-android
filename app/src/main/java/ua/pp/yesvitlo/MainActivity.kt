@@ -206,10 +206,13 @@ private fun ScheduleScreen(
     }
     var regionChosen by rememberSaveable { mutableStateOf(false) }
     var settings by rememberSaveable { mutableStateOf(false) }
+    var allQueues by rememberSaveable { mutableStateOf(false) }
+    var queuesTomorrow by rememberSaveable { mutableStateOf(false) }
     var syncSeconds by remember {
         mutableIntStateOf(prefs.getInt("syncSeconds", 30).takeIf { it in syncOptions } ?: 30)
     }
     BackHandler(settings && !onboarding) { settings = false }
+    BackHandler(allQueues) { allQueues = false }
     var notifications by remember { mutableStateOf(prefs.getBoolean(notificationSetting, false)) }
     var notificationHint by remember { mutableStateOf(false) }
     fun setNotifications(enabled: Boolean) {
@@ -282,7 +285,8 @@ private fun ScheduleScreen(
     val today = now.toLocalDate()
     val date = today.plusDays(if (tomorrow) 1 else 0)
     val activeDays = schedule?.days.orEmpty().filter { it.date == today || it.date == today.plusDays(1) }
-    val groups = (schedule?.copy(days = activeDays)?.groups.orEmpty() + listOfNotNull(group)).distinct()
+    val regionalGroups = schedule?.copy(days = activeDays)?.groups.orEmpty()
+    val groups = (regionalGroups + listOfNotNull(group)).distinct()
     val selected = group ?: groups.firstOrNull()
     val intervals = selected?.let { activeDays.firstOrNull { day -> day.date == date }?.groups?.get(it) }
     val regionName = regions.firstOrNull { it.code == region }?.name
@@ -293,6 +297,24 @@ private fun ScheduleScreen(
     val colors = MaterialTheme.colorScheme
     val scheduleScroll = rememberScrollState()
     val settingsScroll = rememberScrollState()
+    if (allQueues && !onboarding) {
+        val queuesDate = today.plusDays(if (queuesTomorrow) 1 else 0)
+        AllQueuesScreen(
+            regionName = regionName,
+            date = queuesDate.format(calendarLabel),
+            day = activeDays.find { it.date == queuesDate },
+            groups = regionalGroups,
+            selected = group,
+            tomorrow = queuesTomorrow,
+            loading = loading,
+            offline = download?.offline == true,
+            cached = download?.offline == true || schedule?.stale == true ||
+                queuesDate.toString() in schedule?.retained.orEmpty(),
+            onDayChange = { queuesTomorrow = it },
+            onBack = { allQueues = false }
+        )
+        return
+    }
     Scaffold(containerColor = colors.surface, bottomBar = {
         if (!onboarding) NavigationBar {
             NavigationBarItem(selected = !settings, onClick = { settings = false },
@@ -448,6 +470,10 @@ private fun ScheduleScreen(
                             }
                         }
                     }
+                    FilledTonalButton(onClick = {
+                        queuesTomorrow = tomorrow
+                        allQueues = true
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Усі черги регіону") }
                     Text("Час київський. Фактичні відключення можуть відрізнятися від графіка.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
