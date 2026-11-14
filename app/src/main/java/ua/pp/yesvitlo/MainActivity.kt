@@ -287,6 +287,9 @@ private fun ScheduleScreen(
                         }
                         Text("Інтервал діє у відкритому застосунку. Фонові перевірки Android планує окремо.",
                             style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy,
+                            modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення") }
+                        if (updateStatus.isNotEmpty()) Text(updateStatus)
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Сповіщення про зміни графіка та попередження", Modifier.weight(1f).padding(end = 12.dp))
@@ -314,8 +317,6 @@ private fun ScheduleScreen(
                             TextButton(onClick = { openLink(source) }) { Text("Сайт оператора ↗") }
                         }
                         TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
-                        OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy) { Text("Перевірити оновлення") }
-                        if (updateStatus.isNotEmpty()) Text(updateStatus)
                         TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
                         TextButton(onClick = { openLink("https://yesvitlo.pp.ua/") }) { Text("Сайт єСвітло ↗") }
                     }
