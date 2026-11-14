@@ -98,21 +98,6 @@ fun applyDownload(context: Context, region: String, download: Download) {
 }
 
 private val notificationDate = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")
-private fun dayBar(day: List<Interval>): android.graphics.Bitmap {
-    val bitmap = android.graphics.Bitmap.createBitmap(192, 16, android.graphics.Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(bitmap)
-    val brush = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-    brush.color = 0xff777d78.toInt()
-    canvas.drawRoundRect(0f, 0f, 192f, 16f, 7f, 7f, brush)
-    for (interval in day) {
-        if (interval.power == Power.ON) continue
-        brush.color = if (interval.power == Power.OFF) 0xfff14550.toInt() else 0xffa7a5ad.toInt()
-        val start = interval.start * 192f / 1440
-        val end = interval.end * 192f / 1440
-        canvas.drawRoundRect(start, 0f, end, 16f, 4f, 4f, brush)
-    }
-    return bitmap
-}
 private val widgetTypes = listOf(StatusWidget::class.java, NextWidget::class.java, ScheduleWidget::class.java,
     NarrowWidget::class.java, WideWidget::class.java)
 private fun hasWidgets(context: Context) = widgetTypes.any {
@@ -238,18 +223,42 @@ fun updateWidgets(context: Context, download: Download? = null) {
             val metrics = context.resources.displayMetrics
             val paint = android.graphics.Paint()
             val roomy = width >= 240 && height >= 112
+            val detailed = type == WideWidget::class.java || roomy
             val maxSize = if (roomy) 23 else 17
-            val reserved = if (roomy) 77 else 47
-            val textSize = (maxSize downTo 10).firstOrNull { size ->
+            val reserved = if (roomy) 50 else 47
+            val textSize = ((if (detailed) 14 else maxSize) downTo 10).firstOrNull { size ->
                 paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, size.toFloat(), metrics)
-                paint.measureText("00:00–24:00…") <= (width - 40) * metrics.density / 2 &&
+                paint.measureText(if (detailed) "00:00–24:00  Немає" else "00:00–24:00…") <= (width - 40) * metrics.density / 2 &&
                     (height <= 0 || paint.fontSpacing <= (height - reserved) * metrics.density)
             } ?: 10
             paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat(), metrics)
             val rows = if (height > 0) (((height - reserved) * metrics.density) / paint.fontSpacing).toInt().coerceIn(1, limit) else limit
+            fun formatDay(day: List<Interval>): CharSequence {
+                if (!detailed) return outages(day, rows)
+                if (day.isEmpty()) return "Немає графіка"
+                val result = android.text.SpannableStringBuilder()
+                val shown = if (day.size > rows && rows > 1) rows - 1 else rows
+                for (interval in day.take(shown)) {
+                    if (result.isNotEmpty()) result.append('\n')
+                    val start = result.length
+                    val state = when (interval.power) {
+                        Power.ON -> "Є"
+                        Power.OFF -> "Немає"
+                        Power.UNKNOWN -> "Н/д"
+                    }
+                    result.append("${clock(interval.start)}–${clock(interval.end)}  $state")
+                    if (interval.power == Power.OFF) result.setSpan(
+                        android.text.style.ForegroundColorSpan(context.getColor(R.color.widget_off)),
+                        start, result.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                if (day.size > shown) {
+                    if (rows > shown) result.append("\nЩе ${day.size - shown}") else result.append("…")
+                }
+                return result
+            }
             manager.updateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_columns).apply {
-                setTextViewText(R.id.widget_today, outages(intervals, rows))
-                setTextViewText(R.id.widget_tomorrow, outages(tomorrow, rows))
+                setTextViewText(R.id.widget_today, formatDay(intervals))
+                setTextViewText(R.id.widget_tomorrow, formatDay(tomorrow))
                 setInt(R.id.widget_today, "setMaxLines", rows)
                 setInt(R.id.widget_tomorrow, "setMaxLines", rows)
                 setTextViewTextSize(R.id.widget_today, android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
@@ -257,12 +266,6 @@ fun updateWidgets(context: Context, download: Download? = null) {
                 val labelSize = if (roomy) 14f else 11f
                 setTextViewTextSize(R.id.widget_today_label, android.util.TypedValue.COMPLEX_UNIT_SP, labelSize)
                 setTextViewTextSize(R.id.widget_tomorrow_label, android.util.TypedValue.COMPLEX_UNIT_SP, labelSize)
-                if (roomy) {
-                    setImageViewBitmap(R.id.widget_today_bar, dayBar(intervals))
-                    setImageViewBitmap(R.id.widget_tomorrow_bar, dayBar(tomorrow))
-                    setViewVisibility(R.id.widget_today_bar, android.view.View.VISIBLE)
-                    setViewVisibility(R.id.widget_tomorrow_bar, android.view.View.VISIBLE)
-                }
                 val regionName = if (roomy) repository.cachedRegions().find { it.code == region }?.name else null
                 setTextViewText(R.id.widget_note, listOfNotNull(regionName, group, if (stale) "Кеш" else null).joinToString(" · "))
                 setViewVisibility(R.id.widget_warning, if (schedule?.notice != null) android.view.View.VISIBLE else android.view.View.GONE)
