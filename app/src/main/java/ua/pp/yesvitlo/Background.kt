@@ -98,6 +98,21 @@ fun applyDownload(context: Context, region: String, download: Download) {
 }
 
 private val notificationDate = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")
+private fun dayBar(day: List<Interval>): android.graphics.Bitmap {
+    val bitmap = android.graphics.Bitmap.createBitmap(192, 16, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    val brush = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    brush.color = 0xff777d78.toInt()
+    canvas.drawRoundRect(0f, 0f, 192f, 16f, 7f, 7f, brush)
+    for (interval in day) {
+        if (interval.power == Power.ON) continue
+        brush.color = if (interval.power == Power.OFF) 0xffffa65c.toInt() else 0xffa7a5ad.toInt()
+        val start = interval.start * 192f / 1440
+        val end = interval.end * 192f / 1440
+        canvas.drawRoundRect(start, 0f, end, 16f, 4f, 4f, brush)
+    }
+    return bitmap
+}
 private val widgetTypes = listOf(StatusWidget::class.java, NextWidget::class.java, ScheduleWidget::class.java)
 private fun hasWidgets(context: Context) = widgetTypes.any {
     AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, it)).isNotEmpty()
@@ -129,54 +144,64 @@ fun updateWidgets(context: Context, download: Download? = null) {
     val today = now.toLocalDate()
     val intervals = group?.let { schedule?.days?.find { day -> day.date == today }?.groups?.get(it) }.orEmpty()
     val tomorrow = group?.let { schedule?.days?.find { day -> day.date == today.plusDays(1) }?.groups?.get(it) }.orEmpty()
-    val minute = now.hour * 60 + now.minute
-    val current = intervals.find { minute in it.start until it.end }
-    val laterToday = intervals.firstOrNull { it.start > minute }
-    val next = laterToday ?: tomorrow.firstOrNull { it.start != 0 || current?.power != it.power }
-    val nextDay = next != null && laterToday == null
-    val status = when (current?.power) {
-        Power.ON -> "Світло є"
-        Power.OFF -> "Відключення"
-        else -> "Немає даних"
-    }
-    val stale = download?.offline == true || schedule?.stale != false || today.toString() in schedule?.retained.orEmpty() ||
+    val stale = download?.offline == true || schedule?.stale != false || schedule?.retained.orEmpty()
+        .any { it == today.toString() || it == today.plusDays(1).toString() } ||
         runCatching { Instant.parse(prefs.getString("widgetChecked:$region", null)).isBefore(Instant.now().minusSeconds(1800)) }.getOrDefault(true)
     val manager = AppWidgetManager.getInstance(context)
-    val regionName = repository.cachedRegions().find { it.code == region }?.name ?: "єСвітло"
-    fun outages(day: List<Interval>): String {
-        if (day.isEmpty()) return "немає графіка"
+    fun outages(day: List<Interval>, rows: Int): String {
+        if (day.isEmpty()) return "Немає даних"
         val off = day.filter { it.power == Power.OFF }
         val unknown = day.any { it.power == Power.UNKNOWN }
-        val result = off.joinToString(" · ") { "${clock(it.start)}–${clock(it.end)}" }
-        return when {
-            result.isEmpty() && unknown -> "неповні дані"
-            result.isEmpty() -> "без відключень"
-            else -> result + if (unknown) " · неповні дані" else ""
-        }
+        if (off.isEmpty()) return if (unknown) "Неповні дані" else "Без відкл."
+        val lines = off.map { "${clock(it.start)}–${clock(it.end)}" } +
+            if (unknown) listOf("Неповні дані") else emptyList()
+        return lines.take(rows).mapIndexed { index, line ->
+            if (index == rows - 1 && lines.size > rows) "$line…" else line
+        }.joinToString("\n")
     }
     widgetTypes.forEachIndexed { index, type ->
         val ids = manager.getAppWidgetIds(ComponentName(context, type))
-        if (ids.isEmpty()) return@forEachIndexed
-        val title = if (index == 0) "єСвітло" else regionName
-        val details = when (index) {
-            0 -> status
-            1 -> "$status\n" + if (next == null) "Змін у графіку не видно" else {
-                val change = when (next.power) {
-                    Power.ON -> "Світло за графіком"
-                    Power.OFF -> "Відключення"
-                    Power.UNKNOWN -> "Немає даних"
-                }
-                "$change ${if (nextDay) "завтра " else ""}о ${clock(next.start)}"
+        for (id in ids) {
+            val options = manager.getAppWidgetOptions(id)
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                .takeIf { it > 0 } ?: if (index == 0) 150 else 300
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+            val limit = listOf(2, 4, 7)[index]
+            val metrics = context.resources.displayMetrics
+            val paint = android.graphics.Paint().apply {
+                typeface = android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)
             }
-            else -> "Сьогодні: ${outages(intervals)}\nЗавтра: ${outages(tomorrow)}"
+            val roomy = width >= 240 && height >= 112
+            val maxSize = if (roomy) 23 else 17
+            val reserved = if (roomy) 77 else 47
+            val textSize = (maxSize downTo 10).firstOrNull { size ->
+                paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, size.toFloat(), metrics)
+                paint.measureText("00:00–24:00…") <= (width - 28) * metrics.density / 2 &&
+                    (height <= 0 || paint.fontSpacing <= (height - reserved) * metrics.density)
+            } ?: 10
+            paint.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat(), metrics)
+            val rows = if (height > 0) (((height - reserved) * metrics.density) / paint.fontSpacing).toInt().coerceIn(1, limit) else limit
+            manager.updateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_columns).apply {
+                setTextViewText(R.id.widget_today, outages(intervals, rows))
+                setTextViewText(R.id.widget_tomorrow, outages(tomorrow, rows))
+                setInt(R.id.widget_today, "setMaxLines", rows)
+                setInt(R.id.widget_tomorrow, "setMaxLines", rows)
+                setTextViewTextSize(R.id.widget_today, android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
+                setTextViewTextSize(R.id.widget_tomorrow, android.util.TypedValue.COMPLEX_UNIT_SP, textSize.toFloat())
+                val labelSize = if (roomy) 14f else 11f
+                setTextViewTextSize(R.id.widget_today_label, android.util.TypedValue.COMPLEX_UNIT_SP, labelSize)
+                setTextViewTextSize(R.id.widget_tomorrow_label, android.util.TypedValue.COMPLEX_UNIT_SP, labelSize)
+                if (roomy) {
+                    setImageViewBitmap(R.id.widget_today_bar, dayBar(intervals))
+                    setImageViewBitmap(R.id.widget_tomorrow_bar, dayBar(tomorrow))
+                    setViewVisibility(R.id.widget_today_bar, android.view.View.VISIBLE)
+                    setViewVisibility(R.id.widget_tomorrow_bar, android.view.View.VISIBLE)
+                }
+                val regionName = if (roomy) repository.cachedRegions().find { it.code == region }?.name else null
+                setTextViewText(R.id.widget_note, listOfNotNull(regionName, group, if (stale) "Кеш" else null).joinToString(" · "))
+                setViewVisibility(R.id.widget_warning, if (schedule?.notice != null) android.view.View.VISIBLE else android.view.View.GONE)
+                setOnClickPendingIntent(R.id.widget_root, openApp(context))
+            })
         }
-        manager.updateAppWidget(ids, RemoteViews(context.packageName, R.layout.widget_power).apply {
-            setTextViewText(R.id.widget_title, title)
-            setTextViewText(R.id.widget_body, details)
-            setInt(R.id.widget_body, "setMaxLines", if (index == 0) 1 else if (index == 1) 3 else 8)
-            setTextViewText(R.id.widget_note, listOfNotNull(group?.let { "Черга $it" },
-                if (stale) "Збережені дані" else null, if (schedule?.notice != null && index != 0) "Є попередження" else null).joinToString(" · "))
-            setOnClickPendingIntent(R.id.widget_root, openApp(context))
-        })
     }
 }
