@@ -129,54 +129,49 @@ fun updateWidgets(context: Context, download: Download? = null) {
     fun intervals(date: java.time.LocalDate) =
         schedule?.days?.find { it.date == date }?.groups?.get(group).orEmpty()
 
-    val minute = now.hour * 60 + now.minute
-    val day = intervals(today)
-    val current = day.firstOrNull { minute in it.start until it.end }
-    val nextToday = day.firstOrNull { it.start > minute }
-    val next = nextToday ?: intervals(tomorrow).firstOrNull()
-    val nextIsTomorrow = nextToday == null && next != null
+    val currentDay = intervals(today)
+    val nextDay = intervals(tomorrow)
     val stale = download?.offline == true || schedule?.stale != false ||
-        today.toString() in schedule?.retained.orEmpty() ||
-        (nextIsTomorrow && tomorrow.toString() in schedule?.retained.orEmpty()) ||
+        schedule?.retained.orEmpty().any { it == today.toString() || it == tomorrow.toString() } ||
         runCatching { Instant.parse(prefs.getString("widgetChecked:$region", null)).isBefore(now.toInstant().minusSeconds(1800)) }.getOrDefault(true)
-    val stamp = schedule?.updated?.let { runCatching { Instant.parse(it) }.getOrNull() }
-    val updated = when {
-        stamp == null -> if (current == null && next == null) "Немає графіка" else "Збережений графік"
-        stale -> "Збережений графік"
-        else -> "Оновлено " + stamp.atZone(kyiv).format(widgetTimestamp)
-    }
+    val updated = if (stale && (currentDay.isNotEmpty() || nextDay.isNotEmpty())) "Збережений графік" else "Графік відключень"
     val regionName = repository.cachedRegions().find { it.code == region }?.name ?: "єСвітло"
     val views = RemoteViews(context.packageName, R.layout.widget_reference)
-    views.setTextViewText(R.id.reference_title, listOfNotNull(regionName, group?.let { "черга $it" }).joinToString(" · "))
+    views.setTextViewText(R.id.reference_title, listOfNotNull(regionName, group).joinToString(" · "))
     views.setTextViewText(R.id.reference_updated, updated)
     views.setViewVisibility(R.id.reference_warning, if (schedule?.notice != null) android.view.View.VISIBLE else android.view.View.GONE)
 
-    fun bind(row: Int, icon: Int, status: Int, range: Int, interval: Interval?, nextDay: Boolean = false) {
-        val on = interval?.power == Power.ON
-        views.setInt(row, "setBackgroundResource", if (on) R.drawable.widget_state_on else R.drawable.widget_state_neutral)
-        val color = context.getColor(if (on) R.color.widget_on_text else R.color.widget_text)
+    fun bind(row: Int, icon: Int, status: Int, range: Int, day: List<Interval>, label: String, highlighted: Boolean) {
+        val outages = day.filter { it.power == Power.OFF }
+        val unknown = day.isEmpty() || day.any { it.power == Power.UNKNOWN }
+        val background = if (highlighted) R.drawable.widget_state_on else R.drawable.widget_state_neutral
+        val color = context.getColor(if (highlighted) R.color.widget_on_text else R.color.widget_text)
+        views.setInt(row, "setBackgroundResource", background)
         views.setTextColor(status, color)
         views.setTextColor(range, color)
         views.setInt(icon, "setColorFilter", color)
-        views.setImageViewResource(icon, when (interval?.power) {
-            Power.ON -> R.drawable.ic_widget_power
-            Power.OFF -> R.drawable.ic_widget_power_off
-            else -> R.drawable.ic_widget_warning
+        views.setImageViewResource(icon, when {
+            outages.isNotEmpty() -> R.drawable.ic_widget_power_off
+            unknown -> R.drawable.ic_widget_warning
+            else -> R.drawable.ic_widget_power
         })
-        val label = when (interval?.power) {
-            Power.ON -> "Світло є"
-            Power.OFF -> "Світла немає"
-            Power.UNKNOWN -> "Немає даних"
-            null -> "Немає графіка"
+        val summary = when {
+            day.isEmpty() -> "Немає графіка"
+            outages.isEmpty() && unknown -> "Неповні дані"
+            outages.isEmpty() -> "Без відключень"
+            else -> {
+                val first = outages.first()
+                val extra = outages.size - 1
+                clock(first.start) + "–" + clock(first.end) + if (extra > 0) " +$extra" else ""
+            }
         }
-        views.setTextViewText(status, if (nextDay) "Завтра · $label" else label)
-        views.setTextViewText(range, interval?.let { clock(it.start) + "–" + clock(it.end) } ?: "—")
+        views.setTextViewText(status, label)
+        views.setTextViewText(range, summary)
+        views.setContentDescription(row, if (unknown && outages.isNotEmpty()) "$label, $summary, неповні дані" else "$label, $summary")
     }
 
-    bind(R.id.current_row, R.id.current_icon, R.id.current_status, R.id.current_range, current)
-    bind(R.id.next_row, R.id.next_icon, R.id.next_status, R.id.next_range, next, nextIsTomorrow)
+    bind(R.id.current_row, R.id.current_icon, R.id.current_status, R.id.current_range, currentDay, "Сьогодні", false)
+    bind(R.id.next_row, R.id.next_icon, R.id.next_status, R.id.next_range, nextDay, "Завтра", true)
     views.setOnClickPendingIntent(android.R.id.background, openApp(context))
     manager.updateAppWidget(ids, views)
 }
-
-private val widgetTimestamp = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy · HH:mm")
