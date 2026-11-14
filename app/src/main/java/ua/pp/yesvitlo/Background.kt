@@ -113,7 +113,8 @@ private fun dayBar(day: List<Interval>): android.graphics.Bitmap {
     }
     return bitmap
 }
-private val widgetTypes = listOf(StatusWidget::class.java, NextWidget::class.java, ScheduleWidget::class.java)
+private val widgetTypes = listOf(StatusWidget::class.java, NextWidget::class.java, ScheduleWidget::class.java,
+    NarrowWidget::class.java, WideWidget::class.java)
 private fun hasWidgets(context: Context) = widgetTypes.any {
     AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, it)).isNotEmpty()
 }
@@ -132,27 +133,40 @@ abstract class PowerWidget : AppWidgetProvider() {
 class StatusWidget : PowerWidget()
 class NextWidget : PowerWidget()
 class ScheduleWidget : PowerWidget()
+class NarrowWidget : PowerWidget()
+class WideWidget : PowerWidget()
 
 private fun liveWidget(context: Context, today: List<Interval>, tomorrow: List<Interval>,
-                       now: ZonedDateTime, note: String, warning: Boolean): RemoteViews {
+                       now: ZonedDateTime, note: String, warning: Boolean, narrow: Boolean): RemoteViews {
     val minute = now.hour * 60 + now.minute
     val current = today.firstOrNull { minute in it.start until it.end }
     val upcomingToday = today.firstOrNull { it.start > minute }
     val upcoming = upcomingToday ?: tomorrow.firstOrNull()
     val colors = context.resources
     return RemoteViews(context.packageName, R.layout.widget_live).apply {
+        if (narrow) {
+            val inset = (5 * colors.displayMetrics.density).toInt()
+            setViewPadding(R.id.widget_root, inset, inset, inset, inset)
+        }
         setTextViewText(R.id.widget_note, note)
         setViewVisibility(R.id.widget_warning, if (warning) android.view.View.VISIBLE else android.view.View.GONE)
         fun bind(timeId: Int, stateId: Int, interval: Interval?, label: String, missing: String) {
-            setTextViewText(timeId, interval?.let { "${clock(it.start)}–${clock(it.end)}" } ?: "—")
+            setTextViewText(timeId, interval?.let {
+                "${clock(it.start)}–${if (narrow) "\n" else ""}${clock(it.end)}"
+            } ?: "—")
             val state = when (interval?.power) {
                 Power.ON -> "Світло є"
                 Power.OFF -> "Світла немає"
                 Power.UNKNOWN -> "Немає даних"
                 null -> missing
             }
-            setTextViewText(stateId, "$label · $state")
-            setTextViewTextSize(timeId, android.util.TypedValue.COMPLEX_UNIT_SP, 21f)
+            setTextViewText(stateId, if (narrow) when (interval?.power) {
+                Power.ON -> "Є світло"
+                Power.OFF -> "Вимкн."
+                else -> "Н/д"
+            } else "$label · $state")
+            if (narrow) setInt(timeId, "setMaxLines", 2)
+            setTextViewTextSize(timeId, android.util.TypedValue.COMPLEX_UNIT_SP, if (narrow) 12f else 19f)
             setTextColor(timeId, colors.getColor(
                 if (interval?.power == Power.OFF) R.color.widget_off else R.color.widget_text, context.theme))
         }
@@ -191,7 +205,8 @@ fun updateWidgets(context: Context, download: Download? = null) {
     }
     widgetTypes.forEachIndexed { index, type ->
         val ids = manager.getAppWidgetIds(ComponentName(context, type))
-        if (type == NextWidget::class.java && ids.isNotEmpty()) {
+        val narrow = type == NarrowWidget::class.java
+        if ((type == NextWidget::class.java || narrow) && ids.isNotEmpty()) {
             val stamp = schedule?.updated?.let { runCatching { Instant.parse(it) }.getOrNull() }
             val age = stamp?.let { java.time.Duration.between(it, now.toInstant()).toMinutes() }
             val updated = when {
@@ -202,8 +217,8 @@ fun updateWidgets(context: Context, download: Download? = null) {
                 age < 1440 -> "Оновлено ${age / 60} год тому"
                 else -> "Оновлено ${stamp.atZone(kyiv).toLocalDate().format(notificationDate)}"
             }
-            val note = listOfNotNull(group?.let { "Черга $it" }, updated).joinToString(" · ")
-            manager.updateAppWidget(ids, liveWidget(context, intervals, tomorrow, now, note, schedule?.notice != null))
+            val note = if (narrow) group.orEmpty() else listOfNotNull(group?.let { "Черга $it" }, updated).joinToString(" · ")
+            manager.updateAppWidget(ids, liveWidget(context, intervals, tomorrow, now, note, schedule?.notice != null, narrow))
             return@forEachIndexed
         }
         for (id in ids) {
@@ -211,7 +226,7 @@ fun updateWidgets(context: Context, download: Download? = null) {
             val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
                 .takeIf { it > 0 } ?: if (index == 0) 150 else 300
             val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
-            val limit = listOf(2, 4, 7)[index]
+            val limit = if (index == 0) 2 else 7
             val metrics = context.resources.displayMetrics
             val paint = android.graphics.Paint().apply {
                 typeface = android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)

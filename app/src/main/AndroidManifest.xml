@@ -25,5 +25,13 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_schedule" />
         </receiver>
+        <receiver android:name=".NarrowWidget" android:label="єСвітло · Інтервали 1×2" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_narrow" />
+        </receiver>
+        <receiver android:name=".WideWidget" android:label="єСвітло · Графіки 4×2" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_wide" />
+        </receiver>
     </application>
 </manifest>
