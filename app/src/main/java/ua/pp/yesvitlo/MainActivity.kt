@@ -151,7 +151,8 @@ private fun ScheduleScreen(
     }
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (System.currentTimeMillis() - prefs.getLong("lastUpdateCheck", 0) >= 86_400_000L) checkUpdate(false)
+            if (BuildConfig.GITHUB_UPDATES &&
+                System.currentTimeMillis() - prefs.getLong("lastUpdateCheck", 0) >= 86_400_000L) checkUpdate(false)
         }
     }
     if (updatePrompt) update?.let { available ->
@@ -351,8 +352,10 @@ private fun ScheduleScreen(
                         OutlinedButton(onClick = { picker = "theme" }, modifier = Modifier.fillMaxWidth()) {
                             Text("Тема · ${theme.label}  ›")
                         }
-                        OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy,
-                            modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення застосунку") }
+                        if (BuildConfig.GITHUB_UPDATES) {
+                            OutlinedButton(onClick = { checkUpdate(true) }, enabled = !updateBusy,
+                                modifier = Modifier.fillMaxWidth()) { Text("Перевірити оновлення застосунку") }
+                        }
                         if (updateStatus.isNotEmpty()) Text(updateStatus)
                         OutlinedButton(onClick = { picker = "sync" }, modifier = Modifier.fillMaxWidth()) {
                             Text("Частота синхронізації · ${syncLabel(syncSeconds)}  ›")
@@ -371,6 +374,7 @@ private fun ScheduleScreen(
                     if (!onboarding) {
                         Text("Типи сповіщень", style = MaterialTheme.typography.titleMedium)
                         for (type in NotificationType.entries) {
+                            if (!BuildConfig.GITHUB_UPDATES && type == NotificationType.APP_UPDATE) continue
                             OutlinedButton(onClick = { notificationType = type }, modifier = Modifier.fillMaxWidth()) {
                                 Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                     Text(type.label)
@@ -400,6 +404,7 @@ private fun ScheduleScreen(
                         TextButton(onClick = { openLink("https://github.com/Daniell2019UKR/esvitlo-android") }) { Text("GitHub застосунку ↗") }
                         TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
                         TextButton(onClick = { openLink("https://yesvitlo.pp.ua/") }) { Text("Сайт єСвітло ↗") }
+                        TextButton(onClick = { openLink("https://yesvitlo.pp.ua/privacy.html") }) { Text("Політика конфіденційності ↗") }
                         Text("Версія ${BuildConfig.VERSION_NAME} · збірка ${BuildConfig.VERSION_CODE}",
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }

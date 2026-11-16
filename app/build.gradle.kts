@@ -13,8 +13,19 @@ android {
         applicationId = "ua.pp.yesvitlo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
+        versionCode = 16
         versionName = "1.8.0"
+    }
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") {
+            dimension = "distribution"
+            buildConfigField("boolean", "GITHUB_UPDATES", "true")
+        }
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "GITHUB_UPDATES", "false")
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {

@@ -50,6 +50,11 @@ private const val HTTP_OK = HttpURLConnection.HTTP_OK
 internal const val appUpdateTopic = "app-updates"
 
 internal fun syncUpdateChecks(context: Context) {
+    if (!BuildConfig.GITHUB_UPDATES) {
+        WorkManager.getInstance(context).cancelUniqueWork("app-update-check")
+        context.getSystemService(NotificationManager::class.java).cancel("app-update", 0)
+        return
+    }
     val work = PeriodicWorkRequestBuilder<AppUpdateWorker>(6, TimeUnit.HOURS)
         .setInitialDelay(6, TimeUnit.HOURS)
         .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -59,7 +64,7 @@ internal fun syncUpdateChecks(context: Context) {
 
 class AppUpdateWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result = try {
-        latestUpdate()?.let { postAppUpdate(applicationContext, it) }
+        if (BuildConfig.GITHUB_UPDATES) latestUpdate()?.let { postAppUpdate(applicationContext, it) }
         Result.success()
     } catch (_: Exception) {
         Result.retry()

@@ -31,7 +31,7 @@ class PushSubscriptionWorker(context: Context, params: WorkerParameters) : Corou
                 add("notice-${place.region}")
                 place.queue?.let { add("schedule-${place.region}-$it") }
             }
-            if (prefs.notificationMode(NotificationType.APP_UPDATE) != NotificationMode.OFF) add(appUpdateTopic)
+            if (BuildConfig.GITHUB_UPDATES && prefs.notificationMode(NotificationType.APP_UPDATE) != NotificationMode.OFF) add(appUpdateTopic)
         } else emptySet()
         val subscribed = prefs.getStringSet("pushTopics", emptySet()).orEmpty().toMutableSet()
         val messaging = FirebaseMessaging.getInstance()
@@ -62,7 +62,7 @@ class PushService : FirebaseMessagingService() {
         val prefs = getSharedPreferences("esvitlo", MODE_PRIVATE)
         if (!prefs.getBoolean(notificationSetting, false)) return
         if (message.data["type"] == NotificationType.APP_UPDATE.key) {
-            message.data["tag"]?.let(::newerRelease)?.let { postAppUpdate(this, it) }
+            if (BuildConfig.GITHUB_UPDATES) message.data["tag"]?.let(::newerRelease)?.let { postAppUpdate(this, it) }
             return
         }
         val region = message.data["region"] ?: return

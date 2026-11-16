@@ -44,8 +44,10 @@ APK із GitHub Releases отримує push через Firebase Cloud Messaging
 
 Для збірки з push завантажте клієнтську конфігурацію Firebase для `ua.pp.yesvitlo` у `app/google-services.json`. Цей файл ігнорується Git. Збірка без нього використовує локальні сповіщення за результатами опитування. Серверний ключ зберігається на сервері. [Налаштування серверного FCM](https://github.com/Daniell2019UKR/esvitlo/blob/main/docs/deployment.md#push-для-android)
 
-Відкрийте корінь репозиторію в Android Studio з JDK 17 та Android SDK 36 або виконайте `./gradlew :app:assembleDebug` (`gradlew.bat :app:assembleDebug` у Windows). APK для локального встановлення з’явиться в `app/build/outputs/apk/debug/app-debug.apk`.
+Відкрийте корінь репозиторію в Android Studio з JDK 17 та Android SDK 36. Для локального APK виконайте `./gradlew :app:assembleGithubDebug` (у Windows використовуйте `gradlew.bat`). Для публікації зберіть GitHub APK через `:app:assembleGithubRelease` або Google Play AAB через `:app:bundlePlayRelease`.
 
 На Windows використовуйте шлях до проєкту без кирилиці. Під час першої збірки Gradle завантажить залежності з Google Maven і Maven Central.
 
-Для публікації виконайте `./gradlew :app:assembleRelease` і підпишіть `app-release-unsigned.apk` через Android SDK `apksigner` постійним ключем релізу. Зберігайте ключ і пароль поза Git та використовуйте цей самий ключ для наступних APK.
+Підпишіть GitHub APK через Android SDK `apksigner` постійним ключем релізу. Для Google Play підпишіть AAB зареєстрованим ключем завантаження. Щоб оновлювати наявні GitHub-інсталяції через Play зі збереженням даних, налаштуйте в Play App Signing той самий ключ підпису застосунку, яким підписані GitHub APK. Зберігайте ключі й паролі поза Git.
+
+[Матеріали для Play Console](docs/google-play.md)
