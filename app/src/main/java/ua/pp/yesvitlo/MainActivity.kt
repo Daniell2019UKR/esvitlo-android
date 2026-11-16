@@ -232,6 +232,7 @@ private fun ScheduleScreen(
             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
     }
     LaunchedEffect(Unit) {
+        syncUpdateChecks(context)
         if (!onboarding) {
             syncPush(context)
             syncBackground(context)
@@ -490,6 +491,7 @@ private fun ScheduleScreen(
                             selected = selectedMode, role = Role.RadioButton, onClick = {
                                 prefs.edit().putString("notificationMode:${type.key}", mode.name).apply()
                                 notificationModes = notificationModes + (type to mode)
+                                if (type == NotificationType.APP_UPDATE) syncPush(context)
                                 notificationType = null
                             }
                         ), verticalAlignment = Alignment.CenterVertically) {

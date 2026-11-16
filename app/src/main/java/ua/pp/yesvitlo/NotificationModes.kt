@@ -13,7 +13,8 @@ internal enum class NotificationType(val key: String, val label: String) {
     PUBLICATION("publication", "Новий графік на завтра"),
     UNPLANNED("unplanned", "Аварійні відключення"),
     EMERGENCY("emergency", "Екстрені відключення"),
-    CLEARANCE("clearance", "Зняття попередження")
+    CLEARANCE("clearance", "Зняття попередження"),
+    APP_UPDATE("app-update", "Оновлення застосунку")
 }
 
 internal fun SharedPreferences.notificationMode(type: NotificationType): NotificationMode =
@@ -24,10 +25,13 @@ internal fun SharedPreferences.notificationMode(key: String): NotificationMode =
     if (key == "mixed") minOf(notificationMode(NotificationType.UNPLANNED), notificationMode(NotificationType.EMERGENCY))
     else NotificationType.entries.find { it.key == key }?.let { notificationMode(it) } ?: NotificationMode.OFF
 
-internal fun NotificationManager.channelFor(mode: NotificationMode): String? {
+internal fun NotificationManager.channelFor(mode: NotificationMode, appUpdate: Boolean = false): String? {
+    val prefix = if (appUpdate) "app_updates_" else ""
     val channel = when (mode) {
-        NotificationMode.SOUND -> NotificationChannel("schedule_updates", "Графіки та попередження", NotificationManager.IMPORTANCE_DEFAULT)
-        NotificationMode.SILENT -> NotificationChannel("silent_updates", "Сповіщення без звуку", NotificationManager.IMPORTANCE_LOW).apply {
+        NotificationMode.SOUND -> NotificationChannel(prefix + "schedule_updates",
+            if (appUpdate) "Оновлення застосунку" else "Графіки та попередження", NotificationManager.IMPORTANCE_DEFAULT)
+        NotificationMode.SILENT -> NotificationChannel(prefix + "silent_updates",
+            if (appUpdate) "Оновлення застосунку без звуку" else "Сповіщення без звуку", NotificationManager.IMPORTANCE_LOW).apply {
             setSound(null, null)
             enableVibration(false)
         }

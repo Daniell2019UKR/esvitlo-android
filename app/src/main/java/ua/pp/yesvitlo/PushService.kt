@@ -26,9 +26,13 @@ class PushSubscriptionWorker(context: Context, params: WorkerParameters) : Corou
     override suspend fun doWork(): Result {
         if (!pushConfigured(applicationContext)) return Result.success()
         val prefs = applicationContext.getSharedPreferences("esvitlo", Context.MODE_PRIVATE)
-        val desired = if (prefs.getBoolean(notificationSetting, false)) prefs.places().filter { it.alerts }
-            .flatMap { place -> listOfNotNull("notice-${place.region}", place.queue?.let { "schedule-${place.region}-$it" }) }
-            .toSet() else emptySet()
+        val desired = if (prefs.getBoolean(notificationSetting, false)) buildSet {
+            prefs.places().filter { it.alerts }.forEach { place ->
+                add("notice-${place.region}")
+                place.queue?.let { add("schedule-${place.region}-$it") }
+            }
+            if (prefs.notificationMode(NotificationType.APP_UPDATE) != NotificationMode.OFF) add(appUpdateTopic)
+        } else emptySet()
         val subscribed = prefs.getStringSet("pushTopics", emptySet()).orEmpty().toMutableSet()
         val messaging = FirebaseMessaging.getInstance()
         return try {
@@ -57,6 +61,10 @@ class PushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val prefs = getSharedPreferences("esvitlo", MODE_PRIVATE)
         if (!prefs.getBoolean(notificationSetting, false)) return
+        if (message.data["type"] == NotificationType.APP_UPDATE.key) {
+            message.data["tag"]?.let(::newerRelease)?.let { postAppUpdate(this, it) }
+            return
+        }
         val region = message.data["region"] ?: return
         val group = message.data["group"]
         val matching = prefs.places().filter { it.alerts && it.region == region && (group == null || group == it.queue) }
