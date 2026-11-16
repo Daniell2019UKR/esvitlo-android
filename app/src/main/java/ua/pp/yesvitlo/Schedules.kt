@@ -19,7 +19,7 @@ data class Day(val date: LocalDate, val groups: Map<String, List<Interval>>)
 data class Schedule(
     val days: List<Day>, val updated: String?, val stale: Boolean,
     val retained: Set<String>, val notice: String?, val noticeStale: Boolean,
-    val noticeKnown: Boolean = false
+    val noticeKnown: Boolean = false, val noticeKind: String? = null
 ) {
     val groups: List<String> get() = days.flatMap { it.groups.keys }.distinct().sortedWith(
         compareBy({ it.substringBefore('.').toIntOrNull() ?: Int.MAX_VALUE },
@@ -123,7 +123,7 @@ fun parseSchedule(json: JSONObject): Schedule {
         json.optJSONArray("retainedDates")?.items().orEmpty().map { it.toString() }.toSet(),
         alert?.takeIf { it.optBoolean("active") }?.let {
             it.string("message") ?: "Оператор повідомив про відключення."
-        }, alert?.optBoolean("stale") == true, alert?.opt("active") is Boolean)
+        }, alert?.optBoolean("stale") == true, alert?.opt("active") is Boolean, alert?.string("kind"))
 }
 
 private fun minutes(value: String): Int {

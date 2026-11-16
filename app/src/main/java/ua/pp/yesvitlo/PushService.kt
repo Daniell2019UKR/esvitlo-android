@@ -64,13 +64,18 @@ class PushService : FirebaseMessagingService() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return
-        val channel = "schedule_updates"
-        manager.createNotificationChannel(NotificationChannel(channel, "Графіки та попередження", NotificationManager.IMPORTANCE_DEFAULT))
         val body = message.data["body"] ?: return
+        val type = message.data["type"] ?: when {
+            group != null && body.startsWith("Додано") -> "publication"
+            group != null -> "schedule"
+            body.startsWith("Оператор зняв") -> "clearance"
+            else -> "mixed"
+        }
+        val channel = manager.channelFor(prefs.notificationMode(type)) ?: return
         val open = PendingIntent.getActivity(this, (region + group).hashCode(), Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("place", matching.first().id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        manager.notify((message.data["region"] + group).hashCode(), Notification.Builder(this, channel)
+        manager.notify("$region:$group:$type", 0, Notification.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_svitlo_mark).setContentTitle(message.data["title"] ?: "єСвітло")
             .setContentText(body).setStyle(Notification.BigTextStyle().bigText(body))
             .setAutoCancel(true).setContentIntent(open).build())

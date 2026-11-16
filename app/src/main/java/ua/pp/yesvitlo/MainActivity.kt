@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
@@ -195,6 +198,8 @@ private fun ScheduleScreen(
     BackHandler(settings && !onboarding) { settings = false }
     BackHandler(allQueues) { allQueues = false }
     var notifications by remember { mutableStateOf(prefs.getBoolean(notificationSetting, false)) }
+    var notificationModes by remember { mutableStateOf(NotificationType.entries.associateWith { prefs.notificationMode(it) }) }
+    var notificationType by rememberSaveable { mutableStateOf<NotificationType?>(null) }
     var notificationHint by remember { mutableStateOf(false) }
     fun setNotifications(enabled: Boolean) {
         notifications = enabled
@@ -362,6 +367,17 @@ private fun ScheduleScreen(
                         context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
                     }) { Text("Дозволити сповіщення в налаштуваннях Android") }
+                    if (!onboarding) {
+                        Text("Типи сповіщень", style = MaterialTheme.typography.titleMedium)
+                        for (type in NotificationType.entries) {
+                            OutlinedButton(onClick = { notificationType = type }, modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text(type.label)
+                                    Text(notificationModes.getValue(type).label, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
                     if (onboarding) {
                         Button(onClick = {
                             saveRegion(region)
@@ -460,6 +476,32 @@ private fun ScheduleScreen(
                 }
             }
         }
+    }
+
+    notificationType?.let { type ->
+        AlertDialog(
+            onDismissRequest = { notificationType = null },
+            title = { Text(type.label) },
+            text = {
+                Column(Modifier.selectableGroup()) {
+                    for (mode in NotificationMode.entries) {
+                        val selectedMode = notificationModes.getValue(type) == mode
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(
+                            selected = selectedMode, role = Role.RadioButton, onClick = {
+                                prefs.edit().putString("notificationMode:${type.key}", mode.name).apply()
+                                notificationModes = notificationModes + (type to mode)
+                                notificationType = null
+                            }
+                        ), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = selectedMode, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text(mode.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { notificationType = null }) { Text("Закрити") } }
+        )
     }
 
     editingPlace?.let { place ->

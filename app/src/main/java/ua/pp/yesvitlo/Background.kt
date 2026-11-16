@@ -15,7 +15,6 @@ import java.util.concurrent.TimeUnit
 
 private fun Context.settings() = getSharedPreferences("esvitlo", Context.MODE_PRIVATE)
 const val notificationSetting = "notifications"
-private const val channel = "schedule_updates"
 private const val workName = "schedule_sync"
 
 fun syncBackground(context: Context, refresh: Boolean = false) {
@@ -62,7 +61,7 @@ fun applyDownload(context: Context, region: String, download: Download) {
     if (matching.isEmpty()) return
     val groups = matching.mapNotNull { it.queue }.distinct()
     val now = ZonedDateTime.now(kyiv).toLocalDate()
-    val changes = mutableListOf<String>()
+    val changes = mutableListOf<Pair<String, String>>()
     val edit = prefs.edit()
     if (!schedule.stale) for (group in groups) {
         for (day in schedule.days.filter { it.date in now..now.plusDays(1) && it.date.toString() !in schedule.retained }) {
@@ -72,8 +71,10 @@ fun applyDownload(context: Context, region: String, download: Download) {
             val previous = prefs.getString(key, null)
             if (previous != signature && (previous?.startsWith("${day.date}:") == true ||
                         day.date > now && prefs.getString("baseline:$region:$group", null) == now.toString())) {
-                changes += "Черга $group · " + if (previous?.startsWith("${day.date}:") == true)
-                    "Оновлено графік на ${day.date.format(notificationDate)}" else "Додано графік на ${day.date.format(notificationDate)}"
+                val updated = previous?.startsWith("${day.date}:") == true
+                val type = if (updated) "schedule" else "publication"
+                val action = if (updated) "Оновлено" else "Додано"
+                changes += type to "Черга $group · $action графік на ${day.date.format(notificationDate)}"
             }
             edit.putString(key, signature)
         }
@@ -82,20 +83,25 @@ fun applyDownload(context: Context, region: String, download: Download) {
     if (schedule.noticeKnown && !schedule.noticeStale) {
         val normalized = schedule.notice.orEmpty().replace(Regex("\\s+"), " ").trim()
         val old = prefs.getString("notice:$region", null)
-        if (old != normalized && (normalized.isNotEmpty() || old?.isNotEmpty() == true)) {
-            changes += normalized.ifEmpty { "Оператор зняв попередження про відключення." }
+        val kind = schedule.noticeKind ?: "mixed"
+        val previousKind = prefs.getString("noticeKind:$region", null)
+        if (normalized.isNotEmpty() && (old != normalized || previousKind != null && previousKind != kind)) {
+            changes += kind to normalized
+        } else if (normalized.isEmpty() && old?.isNotEmpty() == true) {
+            changes += "clearance" to "Оператор зняв попередження про відключення."
         }
-        edit.putString("notice:$region", normalized)
+        edit.putString("notice:$region", normalized).putString("noticeKind:$region", kind)
     }
     edit.apply()
     if (changes.isEmpty()) return
-    manager.createNotificationChannel(NotificationChannel(channel, "Графіки та попередження", NotificationManager.IMPORTANCE_DEFAULT))
     val regionName = ScheduleRepository(prefs).cachedRegions().find { it.code == region }?.name ?: "єСвітло"
-    val text = changes.joinToString("\n")
-    manager.notify(region.hashCode(), Notification.Builder(context, channel)
-        .setSmallIcon(R.drawable.ic_svitlo_mark).setContentTitle(regionName)
-        .setContentText(changes.first()).setStyle(Notification.BigTextStyle().bigText(text))
-        .setAutoCancel(true).setContentIntent(openApp(context)).build())
+    for ((type, events) in changes.groupBy({ it.first }, { it.second })) {
+        val channel = manager.channelFor(prefs.notificationMode(type)) ?: continue
+        manager.notify("$region:$type", 0, Notification.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_svitlo_mark).setContentTitle(regionName)
+            .setContentText(events.first()).setStyle(Notification.BigTextStyle().bigText(events.joinToString("\n")))
+            .setAutoCancel(true).setContentIntent(openApp(context)).build())
+    }
 }
 
 private val notificationDate = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy")
