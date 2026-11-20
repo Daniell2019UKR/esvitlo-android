@@ -13,8 +13,8 @@ android {
         applicationId = "ua.pp.yesvitlo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.8.0"
+        versionCode = 18
+        versionName = "1.8.1"
     }
     flavorDimensions += "distribution"
     productFlavors {
@@ -25,6 +25,13 @@ android {
         create("play") {
             dimension = "distribution"
             buildConfigField("boolean", "GITHUB_UPDATES", "false")
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     buildFeatures { compose = true; buildConfig = true }

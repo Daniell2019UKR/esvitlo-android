@@ -632,11 +632,6 @@ private fun IntervalRow(interval: Interval, current: Boolean) {
         Power.OFF -> "Відключення"
         Power.UNKNOWN -> "Немає даних"
     }
-    val duration = interval.end - interval.start
-    val durationText = listOfNotNull(
-        (duration / 60).takeIf { it > 0 }?.let { "$it год" },
-        (duration % 60).takeIf { it > 0 }?.let { "$it хв" }
-    ).joinToString(" ")
     Row(Modifier.fillMaxWidth()
         .background(if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent, RoundedCornerShape(16.dp))
         .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -650,8 +645,14 @@ private fun IntervalRow(interval: Interval, current: Boolean) {
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(if (current) "$label · зараз" else label, style = MaterialTheme.typography.bodySmall)
         }
-        Text(durationText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        Text(formatDuration(interval.end - interval.start), color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+internal fun formatDuration(minutes: Int) = listOfNotNull(
+    (minutes / 60).takeIf { it > 0 }?.let { "$it год" },
+    (minutes % 60).takeIf { it > 0 || minutes == 0 }?.let { "$it хв" }
+).joinToString(" ")
 
 fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
