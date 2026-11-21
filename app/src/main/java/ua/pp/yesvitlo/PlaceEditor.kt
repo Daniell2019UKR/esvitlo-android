@@ -3,12 +3,15 @@ package ua.pp.yesvitlo
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -18,6 +21,7 @@ internal fun PlaceEditor(place: Place, regions: List<Region>, repository: Schedu
     var menu by remember { mutableStateOf("") }
     var queues by remember { mutableStateOf(emptyList<String>()) }
     var loading by remember { mutableStateOf(true) }
+    var editReminder by remember(place) { mutableStateOf(draft.reminderMinutes?.toString().orEmpty()) }
     LaunchedEffect(draft.region) {
         loading = true
         queues = withContext(Dispatchers.IO) { repository.schedule(draft.region).schedule.groups }
@@ -46,14 +50,64 @@ internal fun PlaceEditor(place: Place, regions: List<Region>, repository: Schedu
                     })
                 }
             }
+            if (regions.any { it.code == draft.region && it.addressLookup }) {
+                key(draft.region) {
+                    AddressPicker(draft.region, repository, queues) { draft = draft.copy(queue = it) }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Сповіщення", Modifier.weight(1f))
                 Switch(draft.alerts, { draft = draft.copy(alerts = it) })
             }
+            ReminderMinutesField(editReminder, { editReminder = it }, "Нагадати за, хв")
+            Text("Порожньо — як для всіх, 0 — вимкнено.", style = MaterialTheme.typography.bodySmall)
             if (onDelete != null) TextButton(onClick = onDelete) { Text("Видалити локацію") }
         }
     }, confirmButton = {
-        TextButton(onClick = { onSave(draft.copy(name = draft.name.trim())) },
-            enabled = draft.name.isNotBlank() && (draft.queue != null || !loading && queues.isEmpty())) { Text("Зберегти") }
+        TextButton(onClick = { onSave(draft.copy(name = draft.name.trim(), reminderMinutes = editReminder.toIntOrNull())) },
+            enabled = draft.name.isNotBlank() && (editReminder.isEmpty() || editReminder.toIntOrNull() in 0..180) &&
+                (draft.queue != null || !loading && queues.isEmpty())) { Text("Зберегти") }
     }, dismissButton = { TextButton(onClick = onClose) { Text("Скасувати") } })
+}
+
+@Composable
+internal fun ReminderMinutesField(value: String, onChange: (String) -> Unit, label: String) {
+    OutlinedTextField(value, { input -> if (input.length <= 3 && input.all { it in '0'..'9' }) onChange(input) },
+        label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        isError = value.isNotEmpty() && value.toIntOrNull() !in 0..180)
+}
+
+@Composable
+private fun AddressPicker(region: String, repository: ScheduleRepository, queues: List<String>, onChoose: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    var city by remember { mutableStateOf("") }
+    var street by remember { mutableStateOf("") }
+    var house by remember { mutableStateOf("") }
+    var found by remember { mutableStateOf(emptyList<String>()) }
+    var status by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val reset = { found = emptyList(); status = "" }
+    if (!expanded) {
+        TextButton(onClick = { expanded = true }) { Text("Знайти чергу за адресою") }
+        return
+    }
+    OutlinedTextField(city, { city = it.take(100); reset() }, label = { Text("Населений пункт") }, singleLine = true, enabled = !searching)
+    OutlinedTextField(street, { street = it.take(100); reset() }, label = { Text("Вулиця") }, singleLine = true, enabled = !searching)
+    OutlinedTextField(house, { house = it.take(30); reset() }, label = { Text("Будинок") }, singleLine = true, enabled = !searching)
+    TextButton(enabled = !searching && city.isNotBlank() && street.isNotBlank() && house.isNotBlank(), onClick = {
+        searching = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { repository.addressQueues(region, city, street, house) } }
+            found = result.getOrDefault(emptyList()).filter { it in queues }
+            status = when {
+                result.isFailure -> "Пошук недоступний. Оберіть чергу вручну."
+                found.isEmpty() -> "Чергу не знайдено. Оберіть її вручну."
+                else -> "Підтвердьте чергу за даними оператора."
+            }
+            searching = false
+        }
+    }) { Text(if (searching) "Шукаємо…" else "Знайти") }
+    if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
+    for (queue in found) TextButton(onClick = { onChoose(queue); expanded = false; reset() }) { Text("Обрати $queue") }
 }

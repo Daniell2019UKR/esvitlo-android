@@ -186,6 +186,8 @@ private fun ScheduleScreen(
         places = next
         prefs.savePlaces(next)
         syncPush(context)
+        syncOutageReminders(context)
+        syncBackground(context, refresh = true)
         updateWidgets(context)
     }
     LaunchedEffect(requestedPlace) {
@@ -206,6 +208,7 @@ private fun ScheduleScreen(
     var notificationModes by remember { mutableStateOf(NotificationType.entries.associateWith { prefs.notificationMode(it) }) }
     var notificationType by rememberSaveable { mutableStateOf<NotificationType?>(null) }
     var notificationHint by remember { mutableStateOf(false) }
+    var reminderMinutes by remember { mutableIntStateOf(prefs.getInt(reminderDefault, 0)) }
     fun setNotifications(enabled: Boolean) {
         notifications = enabled
         if (enabled && places.none { it.alerts }) {
@@ -215,6 +218,7 @@ private fun ScheduleScreen(
         prefs.edit().putBoolean(notificationSetting, enabled).apply()
         if (!onboarding) {
             syncPush(context)
+            syncOutageReminders(context)
             syncBackground(context, refresh = enabled)
         }
     }
@@ -389,6 +393,15 @@ private fun ScheduleScreen(
                             .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
                     }) { Text("Дозволити сповіщення в налаштуваннях Android") }
                     if (!onboarding) {
+                        OutlinedButton(onClick = { picker = "reminder" }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (reminderMinutes == 0) "Нагадування для всіх · Вимкнено" else "Нагадування для всіх · $reminderMinutes хв")
+                        }
+                        val alarms = context.getSystemService(android.app.AlarmManager::class.java)
+                        if (Build.VERSION.SDK_INT >= 31 && !alarms.canScheduleExactAlarms() &&
+                            places.any { prefs.reminderLead(it) > 0 }) TextButton(onClick = {
+                            context.startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                Uri.parse("package:${context.packageName}")))
+                        }) { Text("Дозволити точний час нагадувань") }
                         Text("Типи сповіщень", style = MaterialTheme.typography.titleMedium)
                         for (type in NotificationType.entries) {
                             if (!BuildConfig.GITHUB_UPDATES && type == NotificationType.APP_UPDATE) continue
@@ -517,6 +530,7 @@ private fun ScheduleScreen(
                                 prefs.edit().putString("notificationMode:${type.key}", mode.name).apply()
                                 notificationModes = notificationModes + (type to mode)
                                 if (type == NotificationType.APP_UPDATE) syncPush(context)
+                                if (type == NotificationType.REMINDER) syncOutageReminders(context)
                                 notificationType = null
                             }
                         ), verticalAlignment = Alignment.CenterVertically) {
@@ -562,6 +576,21 @@ private fun ScheduleScreen(
                     }
                 }
             } }, confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
+    } else if (picker == "reminder") {
+        var minutes by remember { mutableStateOf(reminderMinutes.toString()) }
+        AlertDialog(onDismissRequest = { picker = null }, title = { Text("Нагадування для всіх локацій") },
+            text = { Column {
+                ReminderMinutesField(minutes, { minutes = it }, "До відключення, хв")
+                Text("До 180 хвилин. 0 — вимкнути. Для окремої локації можна вибрати інший час.")
+            } },
+            confirmButton = { TextButton(enabled = minutes.toIntOrNull() in 0..180, onClick = {
+                reminderMinutes = minutes.toInt()
+                prefs.edit().putInt(reminderDefault, reminderMinutes).apply()
+                syncOutageReminders(context)
+                syncBackground(context, refresh = true)
+                picker = null
+            }) { Text("Зберегти") } },
+            dismissButton = { TextButton(onClick = { picker = null }) { Text("Скасувати") } })
     } else if (picker == "sync") {
         AlertDialog(onDismissRequest = { picker = null }, title = { Text("Частота синхронізації") },
             text = {

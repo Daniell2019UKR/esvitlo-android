@@ -14,7 +14,7 @@ import java.util.Locale
 
 val kyiv: ZoneId = runCatching { ZoneId.of("Europe/Kyiv") }.getOrElse { ZoneId.of("Europe/Kiev") }
 fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
-data class Region(val code: String, val name: String, val source: String?)
+data class Region(val code: String, val name: String, val source: String?, val addressLookup: Boolean = false)
 enum class Power { ON, OFF, UNKNOWN }
 data class Interval(val start: Int, val end: Int, val power: Power)
 data class Day(val date: LocalDate, val groups: Map<String, List<Interval>>)
@@ -31,13 +31,28 @@ data class Schedule(
 data class Download(val schedule: Schedule, val offline: Boolean)
 
 class ScheduleRepository(private val prefs: SharedPreferences) {
-    private fun request(path: String): Pair<Int, JSONObject> {
+    fun addressQueues(region: String, city: String, street: String, house: String): List<String> {
+        val input = JSONObject().put("region", region).put("city", city.trim())
+            .put("street", street.trim()).put("house", house.trim())
+        val (_, body) = request("address-queue", input)
+        check(body.optString("status") in setOf("ok", "not_found"))
+        return body.getJSONArray("groups").items().filterIsInstance<String>()
+    }
+    private fun request(path: String, input: JSONObject? = null): Pair<Int, JSONObject> {
         val connection = URL("https://yesvitlo.pp.ua/api/v1/$path").openConnection() as HttpURLConnection
         connection.connectTimeout = 7000
         connection.readTimeout = 7000
         connection.instanceFollowRedirects = false
         connection.setRequestProperty("Accept", "application/json")
         return try {
+            if (input != null) {
+                val payload = input.toString().toByteArray(Charsets.UTF_8)
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.setFixedLengthStreamingMode(payload.size)
+                connection.outputStream.use { it.write(payload) }
+            }
             val status = connection.responseCode
             if (status != 200 && status != 503) throw IOException("HTTP $status")
             val stream = if (status == 200) connection.inputStream else connection.errorStream
@@ -85,7 +100,7 @@ private fun JSONArray.items() = (0 until length()).map { get(it) }
 private fun JSONObject.string(key: String) = if (isNull(key)) null else getString(key)
 private fun parseRegions(json: JSONObject) = json.getJSONArray("regions").items().map {
     it as JSONObject
-    Region(it.getString("code"), it.getString("name"), it.string("source"))
+    Region(it.getString("code"), it.getString("name"), it.string("source"), it.optBoolean("addressLookup"))
 }.filter { it.code.matches(Regex("[a-z][a-z0-9-]{0,47}")) }
 
 fun parseSchedule(json: JSONObject): Schedule {
