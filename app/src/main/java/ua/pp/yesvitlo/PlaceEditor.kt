@@ -21,7 +21,8 @@ internal fun PlaceEditor(place: Place, regions: List<Region>, repository: Schedu
     var menu by remember { mutableStateOf("") }
     var queues by remember { mutableStateOf(emptyList<String>()) }
     var loading by remember { mutableStateOf(true) }
-    var editReminder by remember(place) { mutableStateOf(draft.reminderMinutes?.toString().orEmpty()) }
+    var outage by remember(place) { mutableStateOf(place.outageMinutes?.reminderSettingText().orEmpty()) }
+    var restoration by remember(place) { mutableStateOf(place.restorationMinutes?.reminderSettingText().orEmpty()) }
     LaunchedEffect(draft.region) {
         loading = true
         queues = withContext(Dispatchers.IO) { repository.schedule(draft.region).schedule.groups }
@@ -59,23 +60,29 @@ internal fun PlaceEditor(place: Place, regions: List<Region>, repository: Schedu
                 Text("Сповіщення", Modifier.weight(1f))
                 Switch(draft.alerts, { draft = draft.copy(alerts = it) })
             }
-            ReminderMinutesField(editReminder, { editReminder = it }, "Нагадати за, хв")
-            Text("Порожньо — як для всіх, 0 — вимкнено.", style = MaterialTheme.typography.bodySmall)
+            ReminderMinutesField(outage, { outage = it }, "До відключення, хв")
+            Spacer(Modifier.height(8.dp))
+            ReminderMinutesField(restoration, { restoration = it }, "До відновлення, хв")
+            Text("Наприклад, 60, 15. Порожньо — як для всіх, 0 — вимкнено.", style = MaterialTheme.typography.bodySmall)
             if (onDelete != null) TextButton(onClick = onDelete) { Text("Видалити локацію") }
         }
     }, confirmButton = {
-        TextButton(onClick = { onSave(draft.copy(name = draft.name.trim(), reminderMinutes = editReminder.toIntOrNull())) },
-            enabled = draft.name.isNotBlank() && (editReminder.isEmpty() || editReminder.toIntOrNull() in 0..180) &&
+        TextButton(onClick = { onSave(draft.copy(name = draft.name.trim(), outageMinutes = parseReminderMinutes(outage),
+            restorationMinutes = parseReminderMinutes(restoration))) },
+            enabled = draft.name.isNotBlank() && validReminderMinutes(outage) && validReminderMinutes(restoration) &&
                 (draft.queue != null || !loading && queues.isEmpty())) { Text("Зберегти") }
     }, dismissButton = { TextButton(onClick = onClose) { Text("Скасувати") } })
 }
 
 @Composable
 internal fun ReminderMinutesField(value: String, onChange: (String) -> Unit, label: String) {
-    OutlinedTextField(value, { input -> if (input.length <= 3 && input.all { it in '0'..'9' }) onChange(input) },
-        label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        isError = value.isNotEmpty() && value.toIntOrNull() !in 0..180)
+    val invalid = !validReminderMinutes(value)
+    OutlinedTextField(value, { onChange(it.take(60)) }, modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+        isError = invalid, supportingText = if (invalid) { { Text("До 10 чисел від 1 до 180 через кому.") } } else null)
 }
+
+internal fun validReminderMinutes(value: String) = value.isBlank() || parseReminderMinutes(value) != null
 
 @Composable
 private fun AddressPicker(region: String, repository: ScheduleRepository, queues: List<String>, onChoose: (String) -> Unit) {

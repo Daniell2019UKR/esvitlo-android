@@ -208,7 +208,6 @@ private fun ScheduleScreen(
     var notificationModes by remember { mutableStateOf(NotificationType.entries.associateWith { prefs.notificationMode(it) }) }
     var notificationType by rememberSaveable { mutableStateOf<NotificationType?>(null) }
     var notificationHint by remember { mutableStateOf(false) }
-    var reminderMinutes by remember { mutableIntStateOf(prefs.getInt(reminderDefault, 0)) }
     fun setNotifications(enabled: Boolean) {
         notifications = enabled
         if (enabled && places.none { it.alerts }) {
@@ -394,11 +393,11 @@ private fun ScheduleScreen(
                     }) { Text("Дозволити сповіщення в налаштуваннях Android") }
                     if (!onboarding) {
                         OutlinedButton(onClick = { picker = "reminder" }, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (reminderMinutes == 0) "Нагадування для всіх · Вимкнено" else "Нагадування для всіх · $reminderMinutes хв")
+                            Text("Нагадування про світло")
                         }
                         val alarms = context.getSystemService(android.app.AlarmManager::class.java)
                         if (Build.VERSION.SDK_INT >= 31 && !alarms.canScheduleExactAlarms() &&
-                            places.any { prefs.reminderLead(it) > 0 }) TextButton(onClick = {
+                            places.any { prefs.hasReminders(it) }) TextButton(onClick = {
                             context.startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                                 Uri.parse("package:${context.packageName}")))
                         }) { Text("Дозволити точний час нагадувань") }
@@ -530,7 +529,10 @@ private fun ScheduleScreen(
                                 prefs.edit().putString("notificationMode:${type.key}", mode.name).apply()
                                 notificationModes = notificationModes + (type to mode)
                                 if (type == NotificationType.APP_UPDATE) syncPush(context)
-                                if (type == NotificationType.REMINDER) syncOutageReminders(context)
+                                if (type in reminderTypes) {
+                                    syncOutageReminders(context)
+                                    syncBackground(context, refresh = true)
+                                }
                                 notificationType = null
                             }
                         ), verticalAlignment = Alignment.CenterVertically) {
@@ -577,15 +579,20 @@ private fun ScheduleScreen(
                 }
             } }, confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
     } else if (picker == "reminder") {
-        var minutes by remember { mutableStateOf(reminderMinutes.toString()) }
+        var outage by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.REMINDER).reminderSettingText()) }
+        var restoration by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.RESTORATION).reminderSettingText()) }
         AlertDialog(onDismissRequest = { picker = null }, title = { Text("Нагадування для всіх локацій") },
-            text = { Column {
-                ReminderMinutesField(minutes, { minutes = it }, "До відключення, хв")
-                Text("До 180 хвилин. 0 — вимкнути. Для окремої локації можна вибрати інший час.")
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReminderMinutesField(outage, { outage = it }, "До відключення, хв")
+                ReminderMinutesField(restoration, { restoration = it }, "До відновлення, хв")
+                Text("Введіть час через кому, наприклад 60, 15. 0 або порожнє поле — вимкнено.",
+                    style = MaterialTheme.typography.bodySmall)
             } },
-            confirmButton = { TextButton(enabled = minutes.toIntOrNull() in 0..180, onClick = {
-                reminderMinutes = minutes.toInt()
-                prefs.edit().putInt(reminderDefault, reminderMinutes).apply()
+            confirmButton = { TextButton(enabled = validReminderMinutes(outage) && validReminderMinutes(restoration), onClick = {
+                prefs.edit()
+                    .putString("reminders:reminder", parseReminderMinutes(outage).orEmpty().reminderSettingText())
+                    .putString("reminders:restoration", parseReminderMinutes(restoration).orEmpty().reminderSettingText())
+                    .apply()
                 syncOutageReminders(context)
                 syncBackground(context, refresh = true)
                 picker = null

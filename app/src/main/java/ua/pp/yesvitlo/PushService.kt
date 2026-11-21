@@ -80,7 +80,7 @@ class PushService : FirebaseMessagingService() {
             else -> "mixed"
         }
         if ((type == "schedule" || type == "publication" || group == null) &&
-            matching.any { prefs.reminderLead(it) > 0 }) syncBackground(this, refresh = true)
+            matching.any { prefs.hasReminders(it) }) syncBackground(this, refresh = true)
         val channel = manager.channelFor(prefs.notificationMode(type)) ?: return
         val open = PendingIntent.getActivity(this, (region + group).hashCode(), Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("place", matching.first().id),

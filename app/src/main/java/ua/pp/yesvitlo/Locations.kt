@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class Place(val id: String, val name: String, val region: String, val queue: String?, val alerts: Boolean,
-                          val reminderMinutes: Int? = null)
+                          val outageMinutes: List<Int>? = null, val restorationMinutes: List<Int>? = null)
 
 internal fun SharedPreferences.places(): List<Place> {
     val raw = getString("places", null)
@@ -19,7 +19,9 @@ internal fun SharedPreferences.places(): List<Place> {
             val item = array.getJSONObject(it)
             Place(item.getString("id"), item.getString("name"), item.getString("region"),
                 item.optString("queue").takeIf { value -> value.isNotBlank() }, item.getBoolean("alerts"),
-                item.optInt("reminderMinutes", -1).takeIf { it in 0..180 })
+                item.optString("outageMinutes", "").takeIf { it.isNotEmpty() }?.let(::parseReminderMinutes)
+                    ?: item.optInt("reminderMinutes", -1).takeIf { it in 0..180 }?.let { parseReminderMinutes(it.toString()) },
+                item.optString("restorationMinutes", "").takeIf { it.isNotEmpty() }?.let(::parseReminderMinutes))
         }
     }.getOrDefault(emptyList())
 }
@@ -28,7 +30,8 @@ internal fun SharedPreferences.savePlaces(places: List<Place>) {
     val array = JSONArray()
     for (place in places) array.put(JSONObject().put("id", place.id).put("name", place.name)
         .put("region", place.region).put("queue", place.queue.orEmpty()).put("alerts", place.alerts)
-        .put("reminderMinutes", place.reminderMinutes))
+        .put("outageMinutes", place.outageMinutes?.reminderSettingText())
+        .put("restorationMinutes", place.restorationMinutes?.reminderSettingText()))
     edit().putString("places", array.toString()).apply()
 }
 

@@ -21,7 +21,7 @@ fun syncBackground(context: Context, refresh: Boolean = false) {
     val manager = WorkManager.getInstance(context)
     val prefs = context.settings()
     val alerts = prefs.getBoolean(notificationSetting, false)
-    val reminders = alerts && prefs.places().any { it.alerts && prefs.reminderLead(it) > 0 }
+    val reminders = alerts && prefs.places().any { prefs.hasReminders(it) }
     if ((!alerts || pushConfigured(context)) && !reminders && !hasWidgets(context)) {
         manager.cancelUniqueWork(workName)
         manager.cancelUniqueWork("$workName-now")
