@@ -10,8 +10,10 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 val kyiv: ZoneId = runCatching { ZoneId.of("Europe/Kyiv") }.getOrElse { ZoneId.of("Europe/Kiev") }
+fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
 data class Region(val code: String, val name: String, val source: String?)
 enum class Power { ON, OFF, UNKNOWN }
 data class Interval(val start: Int, val end: Int, val power: Power)

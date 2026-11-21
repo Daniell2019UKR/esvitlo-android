@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "Esvitlo"
-include(":app")
+include(":app", ":schedule", ":wear")

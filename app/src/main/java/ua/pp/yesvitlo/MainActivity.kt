@@ -22,6 +22,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -120,6 +123,7 @@ private fun ScheduleScreen(
     var group by rememberSaveable { mutableStateOf(savedQueue(initialRegion)) }
     var tomorrow by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
+    var manualRefresh by remember { mutableStateOf(false) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
     var regions by remember { mutableStateOf(emptyList<Region>()) }
     var download by remember(region) { mutableStateOf<Download?>(null) }
@@ -254,6 +258,7 @@ private fun ScheduleScreen(
                 download = withContext(Dispatchers.IO) { repository.schedule(region) }
                 if (!onboarding) download?.let { applyDownload(context, region, it) }
                 loading = false
+                manualRefresh = false
                 if (!onboarding) {
                     val schedules = mutableMapOf<String, Schedule>()
                     download?.let { schedules[region] = it.schedule }
@@ -285,6 +290,14 @@ private fun ScheduleScreen(
     val colors = MaterialTheme.colorScheme
     val scheduleScroll = rememberScrollState()
     val settingsScroll = rememberScrollState()
+    val pullState = rememberPullToRefreshState()
+    val refreshSchedule: () -> Unit = {
+        if (!loading) {
+            loading = true
+            manualRefresh = true
+            refresh++
+        }
+    }
     if (allQueues && !onboarding) {
         val queuesDate = today.plusDays(if (queuesTomorrow) 1 else 0)
         AllQueuesScreen(
@@ -311,7 +324,11 @@ private fun ScheduleScreen(
                 icon = { Text("⚙", style = MaterialTheme.typography.titleLarge) }, label = { Text("Параметри") })
         }
     }) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
+        val scheduleVisible = !settings && !onboarding
+        val pullModifier = if (scheduleVisible) Modifier.pullToRefresh(
+            isRefreshing = manualRefresh, state = pullState, onRefresh = refreshSchedule
+        ) else Modifier
+        Box(Modifier.fillMaxSize().padding(insets).then(pullModifier), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 640.dp).fillMaxWidth()
                 .verticalScroll(if (settings || onboarding) settingsScroll else scheduleScroll).padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -414,7 +431,7 @@ private fun ScheduleScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("єСвітло", style = MaterialTheme.typography.titleLarge, color = colors.primary,
                             fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Button(onClick = { refresh++ }, enabled = !loading) { Text("↻  Оновити") }
+                        Button(onClick = refreshSchedule, enabled = !loading) { Text("↻  Оновити") }
                     }
                     Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     if (places.size > 1) {
@@ -436,7 +453,7 @@ private fun ScheduleScreen(
                         }
                     }
                     Text(selected?.let { "Черга $it" } ?: "Чергу не вибрано", color = colors.onSurfaceVariant)
-                    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (loading && !manualRefresh) LinearProgressIndicator(Modifier.fillMaxWidth())
                     schedule?.notice?.let { notice ->
                         OperatorNotice(notice, download?.offline == true || schedule.noticeStale)
                     }
@@ -481,6 +498,9 @@ private fun ScheduleScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            if (scheduleVisible) PullToRefreshDefaults.Indicator(
+                state = pullState, isRefreshing = manualRefresh, modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 
@@ -654,5 +674,3 @@ internal fun formatDuration(minutes: Int) = listOfNotNull(
     (minutes / 60).takeIf { it > 0 }?.let { "$it год" },
     (minutes % 60).takeIf { it > 0 || minutes == 0 }?.let { "$it хв" }
 ).joinToString(" ")
-
-fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
