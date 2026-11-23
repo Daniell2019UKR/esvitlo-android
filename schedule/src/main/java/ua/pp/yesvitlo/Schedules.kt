@@ -14,7 +14,9 @@ import java.util.Locale
 
 val kyiv: ZoneId = runCatching { ZoneId.of("Europe/Kyiv") }.getOrElse { ZoneId.of("Europe/Kiev") }
 fun clock(minute: Int) = "%02d:%02d".format(Locale.ROOT, minute / 60, minute % 60)
-data class Region(val code: String, val name: String, val source: String?, val addressLookup: Boolean = false)
+data class Region(val code: String, val name: String, val source: String?, val addressLookup: Boolean = false,
+                  val outageLookup: Boolean = false)
+data class AddressOutage(val status: String, val reason: String?, val startedAt: String?, val estimatedRestoration: String?)
 enum class Power { ON, OFF, UNKNOWN }
 data class Interval(val start: Int, val end: Int, val power: Power)
 data class Day(val date: LocalDate, val groups: Map<String, List<Interval>>)
@@ -31,10 +33,17 @@ data class Schedule(
 data class Download(val schedule: Schedule, val offline: Boolean)
 
 class ScheduleRepository(private val prefs: SharedPreferences) {
+    private fun addressInput(region: String, city: String, street: String, house: String) =
+        JSONObject().put("region", region).put("city", city.trim()).put("street", street.trim()).put("house", house.trim())
+
+    fun addressOutage(region: String, city: String, street: String, house: String): AddressOutage {
+        val (_, body) = request("address-outage", addressInput(region, city, street, house))
+        return AddressOutage(body.getString("status"), body.string("reason")?.takeIf { it.isNotBlank() },
+            body.string("startedAt")?.takeIf { it.isNotBlank() }, body.string("estimatedRestoration")?.takeIf { it.isNotBlank() })
+    }
+
     fun addressQueues(region: String, city: String, street: String, house: String): List<String> {
-        val input = JSONObject().put("region", region).put("city", city.trim())
-            .put("street", street.trim()).put("house", house.trim())
-        val (_, body) = request("address-queue", input)
+        val (_, body) = request("address-queue", addressInput(region, city, street, house))
         check(body.optString("status") in setOf("ok", "not_found"))
         return body.getJSONArray("groups").items().filterIsInstance<String>()
     }
@@ -100,7 +109,7 @@ private fun JSONArray.items() = (0 until length()).map { get(it) }
 private fun JSONObject.string(key: String) = if (isNull(key)) null else getString(key)
 private fun parseRegions(json: JSONObject) = json.getJSONArray("regions").items().map {
     it as JSONObject
-    Region(it.getString("code"), it.getString("name"), it.string("source"), it.optBoolean("addressLookup"))
+    Region(it.getString("code"), it.getString("name"), it.string("source"), it.optBoolean("addressLookup"), it.optBoolean("outageLookup"))
 }.filter { it.code.matches(Regex("[a-z][a-z0-9-]{0,47}")) }
 
 fun parseSchedule(json: JSONObject): Schedule {

@@ -446,6 +446,9 @@ private fun ScheduleScreen(
                         Button(onClick = refreshSchedule, enabled = !loading) { Text("↻  Оновити") }
                     }
                     Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    if (regions.any { it.code == region && it.outageLookup }) {
+                        OutlinedButton(onClick = { picker = "address-outage" }) { Text("Аварії за адресою") }
+                    }
                     if (places.size > 1) {
                         val pinned = places.take(3)
                         val selectedPlace = places.find { it.id == activePlace }
@@ -578,6 +581,8 @@ private fun ScheduleScreen(
                     }
                 }
             } }, confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
+    } else if (picker == "address-outage") {
+        AddressOutageDialog(region, repository) { picker = null }
     } else if (picker == "reminder") {
         var outage by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.REMINDER).reminderSettingText()) }
         var restoration by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.RESTORATION).reminderSettingText()) }

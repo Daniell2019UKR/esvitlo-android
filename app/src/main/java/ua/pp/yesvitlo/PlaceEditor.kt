@@ -118,3 +118,51 @@ private fun AddressPicker(region: String, repository: ScheduleRepository, queues
     if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
     for (queue in found) TextButton(onClick = { onChoose(queue); expanded = false; reset() }) { Text("Обрати $queue") }
 }
+
+@Composable
+internal fun AddressOutageDialog(region: String, repository: ScheduleRepository, onClose: () -> Unit) {
+    var city by remember { mutableStateOf("") }
+    var street by remember { mutableStateOf("") }
+    var house by remember { mutableStateOf("") }
+    var result by remember { mutableStateOf<AddressOutage?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    AlertDialog(onDismissRequest = onClose, title = { Text("Аварії за адресою") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(city, { city = it.take(100); result = null }, label = { Text("Населений пункт") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !loading)
+            OutlinedTextField(street, { street = it.take(100); result = null }, label = { Text("Вулиця") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !loading)
+            OutlinedTextField(house, { house = it.take(100); result = null }, label = { Text("Будинок") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !loading)
+            result?.let { outage ->
+                val text = when (outage.status) {
+                    "active" -> listOfNotNull("Аварійне відключення", outage.reason,
+                        outage.startedAt?.let { "Початок: $it" },
+                        outage.estimatedRestoration?.let { "Орієнтовне відновлення: $it" }).joinToString("\n")
+                    "no_emergency" -> "Оператор не повідомив про аварію за цією адресою."
+                    "not_found" -> "Оператор не знайшов цей будинок."
+                    "ambiguous" -> "Адреса неоднозначна. Уточніть її на сайті оператора."
+                    else -> "Не вдалося перевірити аварії. Спробуйте пізніше."
+                }
+                if (outage.status == "active") Surface(color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+                    Text(text, Modifier.padding(12.dp))
+                } else Text(text)
+            }
+        }
+    }, confirmButton = {
+        TextButton(enabled = !loading && city.isNotBlank() && street.isNotBlank() && house.isNotBlank(), onClick = {
+            loading = true
+            result = null
+            scope.launch {
+                result = withContext(Dispatchers.IO) {
+                    try { repository.addressOutage(region, city, street, house) }
+                    catch (_: java.io.IOException) { AddressOutage("unavailable", null, null, null) }
+                    catch (_: org.json.JSONException) { AddressOutage("unavailable", null, null, null) }
+                }
+                loading = false
+            }
+        }) { Text(if (loading) "Перевіряємо…" else "Перевірити") }
+    }, dismissButton = { TextButton(onClick = onClose) { Text("Закрити") } })
+}
