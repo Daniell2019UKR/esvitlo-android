@@ -11,16 +11,33 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import androidx.work.*
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 fun pushConfigured(context: Context) = FirebaseApp.getApps(context).isNotEmpty()
 
 fun syncPush(context: Context) {
     if (!pushConfigured(context)) return
-    val work = OneTimeWorkRequestBuilder<PushSubscriptionWorker>().setConstraints(
-        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-    WorkManager.getInstance(context).enqueueUniqueWork("push-subscription", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+    val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+    val work = OneTimeWorkRequestBuilder<PushSubscriptionWorker>().setConstraints(constraints).build()
+    val manager = WorkManager.getInstance(context)
+    manager.enqueueUniqueWork("push-subscription", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+    val prefs = context.getSharedPreferences("esvitlo", Context.MODE_PRIVATE)
+    if (prefs.getBoolean(notificationSetting, false) && prefs.places().any { it.addressWatch != null })
+        manager.enqueueUniquePeriodicWork("address-watch-renewal", ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<PushSubscriptionWorker>(1, TimeUnit.DAYS).setConstraints(constraints).build())
+    else manager.cancelUniqueWork("address-watch-renewal")
 }
+
+private val watchLock = Mutex()
 
 class PushSubscriptionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -36,6 +53,30 @@ class PushSubscriptionWorker(context: Context, params: WorkerParameters) : Corou
         val subscribed = prefs.getStringSet("pushTopics", emptySet()).orEmpty().toMutableSet()
         val messaging = FirebaseMessaging.getInstance()
         return try {
+            watchLock.withLock {
+                val places = JSONArray()
+                if (prefs.getBoolean(notificationSetting, false)) for (place in prefs.places()) {
+                    val address = place.address ?: continue
+                    val id = place.addressWatch ?: continue
+                    places.put(address.json().put("id", id).put("region", place.region))
+                }
+                val existing = prefs.getString("addressWatchSecret", null)
+                if (places.length() > 0 || existing != null) {
+                    val secret = existing ?: (UUID.randomUUID().toString() + UUID.randomUUID()).replace("-", "").also {
+                        check(prefs.edit().putString("addressWatchSecret", it).commit())
+                    }
+                    val input = JSONObject().put("places", places)
+                    if (places.length() > 0) input.put("token", messaging.token.await())
+                    val fingerprint = MessageDigest.getInstance("SHA-256").digest(input.toString().toByteArray())
+                        .joinToString("") { "%02x".format(it) }
+                    val now = System.currentTimeMillis()
+                    if (fingerprint != prefs.getString("addressWatchFingerprint", null) ||
+                        now - prefs.getLong("addressWatchSynced", 0) >= TimeUnit.DAYS.toMillis(7)) {
+                        withContext(Dispatchers.IO) { ScheduleRepository(prefs).syncAddressWatches(secret, input) }
+                        prefs.edit().putString("addressWatchFingerprint", fingerprint).putLong("addressWatchSynced", now).apply()
+                    }
+                }
+            }
             for (topic in subscribed - desired) {
                 messaging.unsubscribeFromTopic(topic).await()
                 subscribed.remove(topic)
@@ -61,6 +102,26 @@ class PushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val prefs = getSharedPreferences("esvitlo", MODE_PRIVATE)
         if (!prefs.getBoolean(notificationSetting, false)) return
+        if (message.data["type"] == NotificationType.ADDRESS_OUTAGE.key) {
+            val id = message.data["id"] ?: return
+            val place = prefs.places().find { it.addressWatch == id } ?: return
+            val event = message.data["event"] ?: return
+            val body = message.data["body"] ?: return
+            if (prefs.getString("addressOutageEvent:${place.id}", null) == event) return
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+            val manager = getSystemService(NotificationManager::class.java)
+            if (!manager.areNotificationsEnabled()) return
+            val channel = manager.channelFor(prefs.notificationMode(NotificationType.ADDRESS_OUTAGE)) ?: return
+            val open = PendingIntent.getActivity(this, id.hashCode(), Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("place", place.id),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            manager.notify("address:${place.id}", 0, Notification.Builder(this, channel)
+                .setSmallIcon(R.drawable.ic_svitlo_mark).setContentTitle(place.name)
+                .setContentText(body).setStyle(Notification.BigTextStyle().bigText(body))
+                .setAutoCancel(true).setContentIntent(open).build())
+            prefs.edit().putString("addressOutageEvent:${place.id}", event).apply()
+            return
+        }
         if (message.data["type"] == NotificationType.APP_UPDATE.key) {
             if (BuildConfig.GITHUB_UPDATES) message.data["tag"]?.let(::newerRelease)?.let { postAppUpdate(this, it) }
             return

@@ -42,17 +42,22 @@ class ScheduleRepository(private val prefs: SharedPreferences) {
             body.string("startedAt")?.takeIf { it.isNotBlank() }, body.string("estimatedRestoration")?.takeIf { it.isNotBlank() })
     }
 
+    fun syncAddressWatches(secret: String, input: JSONObject) {
+        request("address-watch", input, secret)
+    }
+
     fun addressQueues(region: String, city: String, street: String, house: String): List<String> {
         val (_, body) = request("address-queue", addressInput(region, city, street, house))
         check(body.optString("status") in setOf("ok", "not_found"))
         return body.getJSONArray("groups").items().filterIsInstance<String>()
     }
-    private fun request(path: String, input: JSONObject? = null): Pair<Int, JSONObject> {
+    private fun request(path: String, input: JSONObject? = null, secret: String? = null): Pair<Int, JSONObject> {
         val connection = URL("https://yesvitlo.pp.ua/api/v1/$path").openConnection() as HttpURLConnection
         connection.connectTimeout = 7000
         connection.readTimeout = 7000
         connection.instanceFollowRedirects = false
         connection.setRequestProperty("Accept", "application/json")
+        if (secret != null) connection.setRequestProperty("Authorization", "Bearer $secret")
         return try {
             if (input != null) {
                 val payload = input.toString().toByteArray(Charsets.UTF_8)
@@ -63,6 +68,8 @@ class ScheduleRepository(private val prefs: SharedPreferences) {
                 connection.outputStream.use { it.write(payload) }
             }
             val status = connection.responseCode
+            if (secret != null && status == 204) return status to JSONObject()
+            if (secret != null) throw IOException("HTTP $status")
             if (status != 200 && status != 503) throw IOException("HTTP $status")
             val stream = if (status == 200) connection.inputStream else connection.errorStream
             status to JSONObject((stream ?: throw IOException("Empty response")).bufferedReader(Charsets.UTF_8).use { it.readText() })

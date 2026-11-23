@@ -16,6 +16,7 @@ internal enum class NotificationType(val key: String, val label: String) {
     CLEARANCE("clearance", "Зняття попередження"),
     REMINDER("reminder", "Нагадування до відключення"),
     RESTORATION("restoration", "Нагадування до відновлення"),
+    ADDRESS_OUTAGE("address-outage", "Аварії за адресою"),
     APP_UPDATE("app-update", "Оновлення застосунку")
 }
 

@@ -344,7 +344,10 @@ private fun ScheduleScreen(
                         for (place in places) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selectPlace(place) }, modifier = Modifier.weight(1f)) {
-                                    Text((if (place.id == activePlace) "✓ " else "") + place.name)
+                                    Column {
+                                        Text((if (place.id == activePlace) "✓ " else "") + place.name)
+                                        place.address?.let { Text(it.toString(), style = MaterialTheme.typography.bodySmall) }
+                                    }
                                 }
                                 TextButton(onClick = { editingPlace = place }) { Text("Змінити") }
                             }
@@ -551,7 +554,9 @@ private fun ScheduleScreen(
     }
 
     editingPlace?.let { place ->
-        PlaceEditor(place, regions, repository, onClose = { editingPlace = null }, onSave = { updated ->
+        PlaceEditor(place, regions, repository, addressAlertsAvailable = notifications && pushConfigured(context),
+            watchSlotAvailable = places.count { it.id != place.id && it.addressWatch != null } < 12,
+            onClose = { editingPlace = null }, onSave = { updated ->
             persistPlaces(if (places.any { it.id == updated.id }) places.map { if (it.id == updated.id) updated else it }
                 else places + updated)
             selectPlace(updated)
@@ -582,7 +587,8 @@ private fun ScheduleScreen(
                 }
             } }, confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
     } else if (picker == "address-outage") {
-        AddressOutageDialog(region, repository) { picker = null }
+        AddressOutageDialog(region, places.find { it.id == activePlace && it.region == region }?.address,
+            repository) { picker = null }
     } else if (picker == "reminder") {
         var outage by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.REMINDER).reminderSettingText()) }
         var restoration by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.RESTORATION).reminderSettingText()) }
