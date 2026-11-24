@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -205,6 +207,8 @@ private fun ScheduleScreen(
     BackHandler(settings && !onboarding) { settings = false }
     BackHandler(allQueues) { allQueues = false }
     var notifications by remember { mutableStateOf(prefs.getBoolean(notificationSetting, false)) }
+    var setupAddressFields by rememberSaveable(region) { mutableStateOf(arrayListOf<String>()) }
+    val setupAddress = setupAddressFields.takeIf { it.size == 3 }?.let { PlaceAddress(it[0], it[1], it[2]) }
     var notificationModes by remember { mutableStateOf(NotificationType.entries.associateWith { prefs.notificationMode(it) }) }
     var notificationType by rememberSaveable { mutableStateOf<NotificationType?>(null) }
     var notificationHint by remember { mutableStateOf(false) }
@@ -283,8 +287,8 @@ private fun ScheduleScreen(
     val activeDays = schedule?.days.orEmpty().filter { it.date == today || it.date == today.plusDays(1) }
     val regionalGroups = schedule?.copy(days = activeDays)?.groups.orEmpty()
     val groups = (regionalGroups + listOfNotNull(group)).distinct()
-    val selected = group ?: groups.firstOrNull()
-    val intervals = selected?.let { activeDays.firstOrNull { day -> day.date == date }?.groups?.get(it) }
+    val intervals = group?.let { activeDays.firstOrNull { day -> day.date == date }?.groups?.get(it) }
+    val previousIntervals = group?.let { schedule?.previousDays?.firstOrNull { day -> day.date == date }?.groups?.get(it) }
     val regionName = regions.firstOrNull { it.code == region }?.name
         ?: if (region == "o") "Одеса та область" else region
     val cached = download?.offline == true || schedule?.stale == true || date.toString() in schedule?.retained.orEmpty()
@@ -338,7 +342,7 @@ private fun ScheduleScreen(
                 if (onboarding || settings) {
                     Text(if (onboarding) "Налаштуймо єСвітло" else "Параметри",
                         style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    if (onboarding) Text("Оберіть регіон і чергу. Сповіщення можна ввімкнути одразу або пізніше.")
+                    if (onboarding) Text("Оберіть регіон і чергу. За бажанням додайте адресу для пошуку черги.")
                     if (!onboarding) {
                         Text("Мої локації", style = MaterialTheme.typography.titleLarge)
                         for (place in places) {
@@ -360,10 +364,10 @@ private fun ScheduleScreen(
                         Text(if (onboarding && !regionChosen) "Обрати регіон" else "Регіон · $regionName")
                     }
                     if (regions.isEmpty()) TextButton(onClick = { refresh++ }) { Text("Повторити завантаження регіонів") }
-                    if (onboarding && regionChosen) {
+                    if (onboarding && regionChosen && regions.any { it.code == region && it.addressLookup }) {
                         OutlinedButton(onClick = { picker = "group" }, modifier = Modifier.fillMaxWidth(),
                             enabled = groups.isNotEmpty()) {
-                            Text((if (onboarding) group else selected)?.let { "Черга · $it" } ?: "Обрати чергу")
+                            Text(group?.let { "Черга · $it" } ?: "Обрати чергу")
                         }
                         if (onboarding && loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                         if (onboarding && !loading && groups.isEmpty()) {
@@ -394,6 +398,17 @@ private fun ScheduleScreen(
                         context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
                     }) { Text("Дозволити сповіщення в налаштуваннях Android") }
+                    if (onboarding && regionChosen && regions.any { it.code == region && it.addressLookup }) {
+                        key(region) {
+                            PlaceAddressFields(Place("home", "Дім", region, group, notifications,
+                                address = setupAddress),
+                                regions.find { it.code == region }, repository, groups) { draft ->
+                                group = draft.queue
+                                val address = draft.address ?: PlaceAddress()
+                                setupAddressFields = arrayListOf(address.city, address.street, address.house)
+                            }
+                        }
+                    }
                     if (!onboarding) {
                         OutlinedButton(onClick = { picker = "reminder" }, modifier = Modifier.fillMaxWidth()) {
                             Text("Нагадування про світло")
@@ -417,15 +432,15 @@ private fun ScheduleScreen(
                     }
                     if (onboarding) {
                         Button(onClick = {
-                            saveRegion(region)
-                            group?.let { saveQueue(region, it) }
+                            val home = Place("home", "Дім", region, group, notifications,
+                                address = setupAddress?.trimmed()?.takeIf { it.complete })
+                            selectPlace(home)
                             prefs.edit().putBoolean("setupComplete", true).apply()
-                            persistPlaces(prefs.places())
+                            persistPlaces(listOf(home) + places.filterNot { it.id == home.id })
                             onboarding = false
-                            syncPush(context)
-                            syncBackground(context, refresh = notifications)
                         }, modifier = Modifier.fillMaxWidth(),
-                            enabled = regionChosen && (group != null || !loading && groups.isEmpty())) {
+                            enabled = regionChosen && setupAddress?.let { it.empty || it.complete } != false &&
+                                (group != null || setupAddress?.complete == true || !loading && groups.isEmpty())) {
                             Text(if (group != null || !regionChosen) "Почати" else "Продовжити без черги")
                         }
                     } else {
@@ -437,6 +452,7 @@ private fun ScheduleScreen(
                         TextButton(onClick = { openLink("https://t.me/dtekschedule_bot") }) { Text("Telegram-бот ↗") }
                         TextButton(onClick = { openLink("https://yesvitlo.pp.ua/") }) { Text("Сайт єСвітло ↗") }
                         TextButton(onClick = { openLink("https://yesvitlo.pp.ua/privacy.html") }) { Text("Політика конфіденційності ↗") }
+                        TextButton(onClick = { picker = "changelog" }) { Text("Що нового") }
                         Text("Версія ${BuildConfig.VERSION_NAME} · збірка ${BuildConfig.VERSION_CODE}",
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
@@ -449,9 +465,6 @@ private fun ScheduleScreen(
                         Button(onClick = refreshSchedule, enabled = !loading) { Text("↻  Оновити") }
                     }
                     Text(regionName, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    if (regions.any { it.code == region && it.outageLookup }) {
-                        OutlinedButton(onClick = { picker = "address-outage" }) { Text("Аварії за адресою") }
-                    }
                     if (places.size > 1) {
                         val pinned = places.take(3)
                         val selectedPlace = places.find { it.id == activePlace }
@@ -470,7 +483,7 @@ private fun ScheduleScreen(
                             }
                         }
                     }
-                    Text(selected?.let { "Черга $it" } ?: "Чергу не вибрано", color = colors.onSurfaceVariant)
+                    Text(group?.let { "Черга $it" } ?: "Чергу не вибрано", color = colors.onSurfaceVariant)
                     if (loading && !manualRefresh) LinearProgressIndicator(Modifier.fillMaxWidth())
                     schedule?.notice?.let { notice ->
                         OperatorNotice(notice, download?.offline == true || schedule.noticeStale)
@@ -490,13 +503,15 @@ private fun ScheduleScreen(
                             if (intervals == null) {
                                 Text(when {
                                     loading -> "Завантажуємо графік…"
+                                    group == null -> "Оберіть чергу в параметрах, щоб бачити її графік."
                                     download?.offline == true -> "Немає зв’язку. На цю дату графік не збережено."
                                     else -> "На цю дату графік для вибраної черги наразі недоступний."
                                 }, Modifier.padding(vertical = 20.dp))
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    intervals.forEach { interval ->
-                                        IntervalRow(interval, !tomorrow && currentMinute in interval.start until interval.end)
+                                    for ((interval, previousPower) in scheduleRows(intervals, previousIntervals)) {
+                                        IntervalRow(interval, !tomorrow && currentMinute in interval.start until interval.end,
+                                            previousPower)
                                     }
                                 }
                                 HorizontalDivider()
@@ -554,8 +569,7 @@ private fun ScheduleScreen(
     }
 
     editingPlace?.let { place ->
-        PlaceEditor(place, regions, repository, addressAlertsAvailable = notifications && pushConfigured(context),
-            watchSlotAvailable = places.count { it.id != place.id && it.addressWatch != null } < 12,
+        PlaceEditor(place, regions, repository,
             onClose = { editingPlace = null }, onSave = { updated ->
             persistPlaces(if (places.any { it.id == updated.id }) places.map { if (it.id == updated.id) updated else it }
                 else places + updated)
@@ -586,9 +600,13 @@ private fun ScheduleScreen(
                     }
                 }
             } }, confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
-    } else if (picker == "address-outage") {
-        AddressOutageDialog(region, places.find { it.id == activePlace && it.region == region }?.address,
-            repository) { picker = null }
+    } else if (picker == "changelog") {
+        AlertDialog(onDismissRequest = { picker = null }, title = { Text("Що нового") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("• Адресу можна додати вже під час першого налаштування або в редакторі локації.")
+                Text("• Можна вибрати кілька нагадувань до відключення та відновлення світла.")
+            } },
+            confirmButton = { TextButton(onClick = { picker = null }) { Text("Закрити") } })
     } else if (picker == "reminder") {
         var outage by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.REMINDER).reminderSettingText()) }
         var restoration by remember { mutableStateOf(prefs.defaultReminderMinutes(NotificationType.RESTORATION).reminderSettingText()) }
@@ -693,14 +711,31 @@ private fun OperatorNotice(message: String, stale: Boolean) {
 }
 
 @Composable
-private fun IntervalRow(interval: Interval, current: Boolean) {
+private fun IntervalRow(interval: Interval, current: Boolean, previousPower: Power?) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(16.dp)
+    val change = when {
+        previousPower == null -> null
+        interval.power == Power.UNKNOWN -> "Дані зникли"
+        previousPower == Power.UNKNOWN -> "Дані відновлено"
+        interval.power == Power.OFF -> "Додано відключення"
+        else -> "Скасовано відключення"
+    }
+    val outline = when {
+        change == null -> Color.Transparent
+        interval.power == Power.OFF -> colors.error
+        previousPower == Power.OFF && interval.power == Power.ON ->
+            if (colors.surface.luminance() < 0.5f) Color(0xFF71DBA0) else Color(0xFF187645)
+        else -> colors.outline
+    }
     val label = when (interval.power) {
         Power.ON -> "Світло є"
         Power.OFF -> "Відключення"
         Power.UNKNOWN -> "Немає даних"
     }
     Row(Modifier.fillMaxWidth()
-        .background(if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent, RoundedCornerShape(16.dp))
+        .background(if (current) colors.secondaryContainer else Color.Transparent, shape)
+        .then(if (change != null) Modifier.border(1.dp, outline, shape) else Modifier)
         .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("${clock(interval.start)} – ${clock(interval.end)}",
@@ -711,6 +746,7 @@ private fun IntervalRow(interval: Interval, current: Boolean) {
                 },
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(if (current) "$label · зараз" else label, style = MaterialTheme.typography.bodySmall)
+            if (change != null) Text(change, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(formatDuration(interval.end - interval.start), color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium)

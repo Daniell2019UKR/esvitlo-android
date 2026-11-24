@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -16,7 +17,6 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun PlaceEditor(place: Place, regions: List<Region>, repository: ScheduleRepository,
-                         addressAlertsAvailable: Boolean, watchSlotAvailable: Boolean,
                          onClose: () -> Unit, onSave: (Place) -> Unit, onDelete: (() -> Unit)?) {
     var draft by remember(place) { mutableStateOf(place) }
     var menu by remember { mutableStateOf("") }
@@ -39,7 +39,7 @@ internal fun PlaceEditor(place: Place, regions: List<Region>, repository: Schedu
                 DropdownMenu(menu == "region", { menu = "" }) {
                     for (region in regions) DropdownMenuItem(text = { Text(region.name) }, onClick = {
                         if (region.code != draft.region) draft = draft.copy(region = region.code, queue = null,
-                            address = null, addressWatch = null)
+                            address = null)
                         menu = ""
                     })
                 }
@@ -56,7 +56,7 @@ internal fun PlaceEditor(place: Place, regions: List<Region>, repository: Schedu
                 }
             }
             key(draft.region) {
-                PlaceAddressFields(draft, provider, repository, queues, addressAlertsAvailable, watchSlotAvailable) {
+                PlaceAddressFields(draft, provider, repository, queues) {
                     draft = it
                 }
             }
@@ -90,18 +90,18 @@ internal fun ReminderMinutesField(value: String, onChange: (String) -> Unit, lab
 internal fun validReminderMinutes(value: String) = value.isBlank() || parseReminderMinutes(value) != null
 
 @Composable
-private fun PlaceAddressFields(place: Place, provider: Region?, repository: ScheduleRepository, queues: List<String>,
-                               alertsAvailable: Boolean, slotAvailable: Boolean, onChange: (Place) -> Unit) {
-    var expanded by remember { mutableStateOf(place.address != null) }
+internal fun PlaceAddressFields(place: Place, provider: Region?, repository: ScheduleRepository, queues: List<String>,
+                               onChange: (Place) -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(place.address != null) }
     var found by remember { mutableStateOf(emptyList<String>()) }
     var status by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
-    var verified by remember { mutableStateOf(place.addressWatch != null) }
     val scope = rememberCoroutineScope()
     val address = place.address ?: PlaceAddress()
     fun edit(value: PlaceAddress) {
-        found = emptyList(); status = ""; verified = false
-        onChange(place.copy(address = value, addressWatch = null))
+        found = emptyList()
+        status = ""
+        onChange(place.copy(address = value))
     }
     if (!expanded) {
         TextButton(onClick = { expanded = true }) { Text("Додати адресу") }
@@ -109,50 +109,26 @@ private fun PlaceAddressFields(place: Place, provider: Region?, repository: Sche
     }
     Text("Адреса локації", style = MaterialTheme.typography.titleSmall)
     AddressFields(address, !searching, ::edit)
-    if (provider?.addressLookup == true || provider?.outageLookup == true) {
+    if (provider?.addressLookup == true) {
         TextButton(enabled = !searching && address.complete, onClick = {
             searching = true
             val (city, street, house) = address.trimmed()
             scope.launch {
-                val update = withContext(Dispatchers.IO) {
-                    val status = if (provider.outageLookup) runCatching {
-                        repository.addressOutage(place.region, city, street, house)
-                    }.getOrNull() else null
-                    val groups = if (provider.addressLookup) runCatching {
-                        repository.addressQueues(place.region, city, street, house)
-                    }.getOrDefault(emptyList()) else emptyList()
-                    status to groups
+                val groups = withContext(Dispatchers.IO) {
+                    try { repository.addressQueues(place.region, city, street, house) }
+                    catch (_: java.io.IOException) { emptyList() }
+                    catch (_: org.json.JSONException) { emptyList() }
+                    catch (_: IllegalStateException) { emptyList() }
                 }
-                found = update.second.filter { queues.isEmpty() || it in queues }
-                if (provider.outageLookup) verified = verified || update.first?.status in setOf("active", "no_emergency")
-                status = listOfNotNull(update.first?.displayText(),
-                    if (found.isNotEmpty()) "Оберіть запропоновану чергу або залиште поточну."
-                    else if (provider.addressLookup) "Чергу можна вибрати вручну." else null)
-                    .joinToString("\n").ifBlank { "Не вдалося перевірити адресу. Спробуйте пізніше." }
+                found = groups.filter { queues.isEmpty() || it in queues }
+                status = if (found.isNotEmpty()) "Оберіть запропоновану чергу або залиште поточну."
+                    else "Чергу можна вибрати вручну."
                 searching = false
             }
-        }) { Text(if (searching) "Перевіряємо…" else "Перевірити адресу") }
+        }) { Text(if (searching) "Перевіряємо…" else "Знайти чергу за адресою") }
     }
     if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
     for (queue in found) TextButton(onClick = { onChange(place.copy(queue = queue)); found = emptyList() }) { Text("Обрати $queue") }
-    if (provider?.outageLookup == true) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Сповіщення про аварії за адресою", Modifier.weight(1f))
-            Switch(checked = place.addressWatch != null,
-                enabled = !searching && (place.addressWatch != null || verified && alertsAvailable && slotAvailable),
-                onCheckedChange = { enabled ->
-                    onChange(place.copy(addressWatch = if (enabled) java.util.UUID.randomUUID().toString() else null))
-                })
-        }
-        Text(when {
-            place.addressWatch != null -> "Сервер перевіряє цю адресу, доки сповіщення увімкнено."
-            !alertsAvailable -> "Спочатку увімкніть сповіщення застосунку."
-            !slotAvailable -> "Можна відстежувати до 12 адрес."
-            !verified -> "Перевірте адресу перед увімкненням."
-            else -> "Після ввімкнення адреса передаватиметься серверу для перевірок."
-        }, style = MaterialTheme.typography.bodySmall)
-    } else if (provider != null) Text("Підписка на аварії від цього оператора поки недоступна.",
-        style = MaterialTheme.typography.bodySmall)
     if (!address.empty) TextButton(enabled = !searching, onClick = {
         edit(PlaceAddress())
         expanded = false
@@ -167,47 +143,4 @@ private fun AddressFields(address: PlaceAddress, enabled: Boolean, onChange: (Pl
         modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = enabled)
     OutlinedTextField(address.house, { onChange(address.copy(house = it.take(100))) }, label = { Text("Будинок") },
         modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = enabled)
-}
-
-private fun AddressOutage.displayText() = when (status) {
-    "active" -> listOfNotNull("Аварійне відключення", reason,
-        startedAt?.let { "Початок: $it" }, estimatedRestoration?.let { "Орієнтовне відновлення: $it" }).joinToString("\n")
-    "no_emergency" -> "Оператор не повідомив про аварію за цією адресою."
-    "not_found" -> "Оператор не знайшов цей будинок."
-    "ambiguous" -> "Адреса неоднозначна. Уточніть її на сайті оператора. Для однойменних населених пунктів додайте громаду або РЕМ у дужках."
-    else -> "Не вдалося перевірити аварії. Спробуйте пізніше."
-}
-
-@Composable
-internal fun AddressOutageDialog(region: String, saved: PlaceAddress?, repository: ScheduleRepository, onClose: () -> Unit) {
-    var address by remember(saved) { mutableStateOf(saved ?: PlaceAddress()) }
-    var result by remember { mutableStateOf<AddressOutage?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = onClose, title = { Text("Аварії за адресою") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            AddressFields(address, !loading) { address = it; result = null }
-            result?.let { outage ->
-                val text = outage.displayText()
-                if (outage.status == "active") Surface(color = MaterialTheme.colorScheme.errorContainer,
-                    shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
-                    Text(text, Modifier.padding(12.dp))
-                } else Text(text)
-            }
-        }
-    }, confirmButton = {
-        TextButton(enabled = !loading && address.complete, onClick = {
-            loading = true
-            result = null
-            scope.launch {
-                result = withContext(Dispatchers.IO) {
-                    val (city, street, house) = address.trimmed()
-                    try { repository.addressOutage(region, city, street, house) }
-                    catch (_: java.io.IOException) { AddressOutage("unavailable", null, null, null) }
-                    catch (_: org.json.JSONException) { AddressOutage("unavailable", null, null, null) }
-                }
-                loading = false
-            }
-        }) { Text(if (loading) "Перевіряємо…" else "Перевірити") }
-    }, dismissButton = { TextButton(onClick = onClose) { Text("Закрити") } })
 }
